@@ -12,6 +12,9 @@ RUN npm ci --omit=dev
 # 复制服务端代码
 COPY server/ ./server/
 
+# 复制共享的 lib 目录（前端与 API 共用）
+COPY src/lib/ ./src/lib/
+
 # 暴露端口
 EXPOSE 8787
 

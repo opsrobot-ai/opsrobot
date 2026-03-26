@@ -17,6 +17,35 @@ services:
       - openclaw-observability
 
   # =============================================================================
+  # 数据库初始化容器 - 等待 Doris 就绪后创建数据库和表
+  # =============================================================================
+  db-init:
+    image: mysql:8
+    container_name: openclaw-observability-db-init
+    restart: "no"
+    volumes:
+      - ./scripts/init-doris-schema.sql:/docker-entrypoint-initdb.d/init-doris-schema.sql:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "等待 Doris FE 就绪..."
+        until mysql -h"$${DORIS_HOST:-doris}" -P"$${DORIS_PORT:-9030}" -uroot -e "SELECT 1" 2>/dev/null; do
+          echo "等待中..."
+          sleep 2
+        done
+        echo "Doris 已就绪，开始初始化..."
+        mysql -h"$${DORIS_HOST:-doris}" -P"$${DORIS_PORT:-9030}" -uroot < /docker-entrypoint-initdb.d/init-doris-schema.sql
+        echo "数据库初始化完成"
+    environment:
+      - DORIS_HOST=${DORIS_HOST:-doris}
+      - DORIS_PORT=${DORIS_PORT:-9030}
+    depends_on:
+      doris:
+        condition: service_healthy
+    networks:
+      - openclaw-observability
+
+  # =============================================================================
   # API 服务 - Node.js 后端
   # =============================================================================
   api:
@@ -37,8 +66,10 @@ services:
     depends_on:
       doris:
         condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:8787/api/agent-sessions || exit 1"]
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 8787 || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
