@@ -466,7 +466,7 @@ export default function Dashboard() {
           })}
         </nav>
 
-        <div className="border-t border-gray-100 p-4 dark:border-gray-800">
+        {/* <div className="border-t border-gray-100 p-4 dark:border-gray-800">
           <div className="rounded-lg bg-gray-50 p-4 dark:bg-gray-900/60">
             <p className="text-xs font-medium text-gray-700 dark:text-gray-300">需要帮助？</p>
             <p className="mt-1 text-xs leading-relaxed text-gray-500 dark:text-gray-400">查看文档或联系管理员获取权限与数据说明。</p>
@@ -477,7 +477,7 @@ export default function Dashboard() {
               打开帮助中心
             </button>
           </div>
-        </div>
+        </div> */}
       </aside>
 
       {/* Main */}

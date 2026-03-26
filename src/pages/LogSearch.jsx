@@ -360,7 +360,6 @@ export default function LogSearch() {
           </div>
 
           <div className="lg:col-span-4 space-y-3">
-            <p className="text-xs font-medium text-gray-600 dark:text-gray-400">时间范围</p>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
               <label className="flex flex-1 flex-col gap-1.5 text-xs text-gray-500 dark:text-gray-400">
                 开始
@@ -394,7 +393,7 @@ export default function LogSearch() {
 
           <div className="lg:col-span-8">
             <p className="text-xs font-medium text-gray-600 dark:text-gray-400">全文 / 关键字</p>
-            <div className="relative mt-3">
+            <div className="relative mt-2">
               <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-400">
                 <SearchIcon />
               </span>
