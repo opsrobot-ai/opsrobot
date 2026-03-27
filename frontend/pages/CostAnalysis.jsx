@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import LoadingSpinner from "../components/LoadingSpinner.jsx";
 import AgentTokenRoseChart from "../components/AgentTokenRoseChart.jsx";
 import {
@@ -8,7 +8,8 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
-  Legend,
+  Line,
+  LineChart,
   Pie,
   PieChart,
   ResponsiveContainer,
@@ -16,6 +17,9 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+
+/** Token 折算费用：与成本概览2 一致，仅作代理指标（元/百万 Token） */
+const COST_YUAN_PER_M_TOKEN = 3;
 
 /** Token 数展示：自适应 K / M / B 单位 */
 function fmtTokens(n) {
@@ -42,6 +46,13 @@ const CARD_ACCENTS = [
   "from-amber-50 to-orange-50/70 dark:from-amber-950/40 dark:to-gray-900",
 ];
 
+const CARD_BORDER = [
+  "border-l-primary",
+  "border-l-emerald-500",
+  "border-l-indigo-500",
+  "border-l-amber-500",
+];
+
 function MomBadge({ pct }) {
   const pos = pct >= 0;
   return (
@@ -59,49 +70,68 @@ function MomBadge({ pct }) {
   );
 }
 
+const TREND_PRESETS = [
+  { days: 7, label: "近 7 日" },
+  { days: 14, label: "近 14 日" },
+  { days: 30, label: "近 30 日" },
+];
+
 export default function CostAnalysis() {
+  const [trendDays, setTrendDays] = useState(14);
   const [snapshot, setSnapshot] = useState(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
   const [dailyAgentFilter, setDailyAgentFilter] = useState(null);
+  const [inOutHidden, setInOutHidden] = useState(() => new Set());
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setErr(null);
+    try {
+      const r = await fetch(`/api/cost-overview?trendDays=${trendDays}`);
+      const text = await r.text();
+      if (!r.ok) {
+        let msg = text;
+        try {
+          const j = JSON.parse(text);
+          if (j?.error) msg = j.error;
+        } catch {
+          /* ignore */
+        }
+        throw new Error(msg || `HTTP ${r.status}`);
+      }
+      const j = JSON.parse(text);
+      setSnapshot(j);
+      setInOutHidden(new Set());
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, [trendDays]);
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      setErr(null);
-      try {
-        const r = await fetch("/api/cost-overview");
-        const text = await r.text();
-        if (!r.ok) {
-          let msg = text;
-          try {
-            const j = JSON.parse(text);
-            if (j?.error) msg = j.error;
-          } catch {
-            /* ignore */
-          }
-          throw new Error(msg || `HTTP ${r.status}`);
-        }
-        const j = JSON.parse(text);
-        if (!cancelled) setSnapshot(j);
-      } catch (e) {
-        if (!cancelled) setErr(e instanceof Error ? e.message : String(e));
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    load();
+  }, [load]);
 
   const barSeries = snapshot?.dailyByAgent?.series ?? [];
   const barRows = snapshot?.dailyByAgent?.rows ?? [];
   const trend14 = snapshot?.trend14d ?? [];
   const agentShare = snapshot?.agentShare ?? [];
+  const modelShare = snapshot?.modelShare ?? [];
+  const topSessions = snapshot?.topSessions ?? [];
   const inOutPie = snapshot?.inOut?.pie ?? [];
   const cards = snapshot?.cards;
+  const meta = snapshot?.meta;
+
+  const trendWithCost = useMemo(
+    () =>
+      trend14.map((row) => ({
+        ...row,
+        costYuan: Math.round(Number(row.tokens || 0) * COST_YUAN_PER_M_TOKEN * 100) / 100,
+      })),
+    [trend14]
+  );
 
   const overviewCards = useMemo(() => {
     if (!cards) return [];
@@ -113,6 +143,7 @@ export default function CostAnalysis() {
         mom: cards.today.momPct,
         compareLabel: "较昨日",
         accent: CARD_ACCENTS[0],
+        border: CARD_BORDER[0],
       },
       {
         kind: "total",
@@ -121,6 +152,7 @@ export default function CostAnalysis() {
         mom: cards.week.momPct,
         compareLabel: "较上周同期",
         accent: CARD_ACCENTS[1],
+        border: CARD_BORDER[1],
       },
       {
         kind: "total",
@@ -129,6 +161,7 @@ export default function CostAnalysis() {
         mom: cards.month.momPct,
         compareLabel: "较上月同期",
         accent: CARD_ACCENTS[2],
+        border: CARD_BORDER[2],
       },
       {
         kind: "avg",
@@ -138,6 +171,7 @@ export default function CostAnalysis() {
         peakDay: cards.dailyAvg7d.peakDay,
         peakValue: cards.dailyAvg7d.peakTokens,
         accent: CARD_ACCENTS[3],
+        border: CARD_BORDER[3],
       },
     ];
   }, [cards]);
@@ -148,12 +182,29 @@ export default function CostAnalysis() {
   const hasInOutData =
     (snapshot?.inOut?.inputTokens ?? 0) + (snapshot?.inOut?.outputTokens ?? 0) > 0;
 
-  if (loading) {
+  const inOutPieFiltered = useMemo(() => {
+    return inOutPie.filter((e) => !inOutHidden.has(String(e.name)));
+  }, [inOutPie, inOutHidden]);
+
+  const handleInOutLegendClick = (o) => {
+    const name = o?.value ?? o?.payload?.name;
+    if (name == null || name === "—") return;
+    setInOutHidden((prev) => {
+      const next = new Set(prev);
+      const key = String(name);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  if (loading && !snapshot) {
     return (
-      <div className="space-y-6">
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="space-y-3">
+        <div className="app-card h-12 animate-pulse bg-gray-100/80 dark:bg-gray-800/80" />
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
           {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="app-card h-40 animate-pulse bg-gray-100/80 dark:bg-gray-800/80" />
+            <div key={i} className="app-card h-[5.25rem] animate-pulse bg-gray-100/80 dark:bg-gray-800/80" />
           ))}
         </div>
         <LoadingSpinner message="正在加载成本概览…" />
@@ -170,47 +221,89 @@ export default function CostAnalysis() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* 成本总览 */}
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="space-y-3">
+      {/* 顶部工具栏：参考监控台时间快捷筛选 */}
+      <div className="app-card flex flex-col gap-2 px-3 py-2.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-medium text-gray-600 dark:text-gray-400">趋势窗口</span>
+          <div className="flex flex-wrap gap-1.5">
+            {TREND_PRESETS.map((p) => (
+              <button
+                key={p.days}
+                type="button"
+                onClick={() => setTrendDays(p.days)}
+                disabled={loading}
+                className={[
+                  "rounded-lg px-3 py-1.5 text-xs font-medium transition",
+                  trendDays === p.days
+                    ? "bg-primary text-white shadow-sm"
+                    : "bg-gray-50 text-gray-700 ring-1 ring-gray-200 hover:bg-primary-soft hover:text-primary dark:bg-gray-800 dark:text-gray-200 dark:ring-gray-700",
+                  loading ? "cursor-wait opacity-70" : "",
+                ].join(" ")}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+          {meta?.trendRangeLabel ? (
+            <span className="text-xs text-gray-500 dark:text-gray-400">当前区间：{meta.trendRangeLabel}</span>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => load()}
+            disabled={loading}
+            className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-primary/90 disabled:opacity-60"
+          >
+            {loading ? "刷新中…" : "刷新数据"}
+          </button>
+        </div>
+      </div>
+
+      {/* KPI：紧凑高度 + 左侧色条（整体约缩短 1/4） */}
+      <section className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
         {overviewCards.map((m) => (
           <article
             key={m.title}
-            className="relative overflow-hidden app-card p-6 transition duration-200 hover:shadow-card-hover dark:hover:shadow-none"
+            className={[
+              "relative overflow-hidden app-card border-l-4 p-3 transition duration-200 hover:shadow-card-hover dark:hover:shadow-none",
+              m.border,
+            ].join(" ")}
           >
             <div className={`pointer-events-none absolute inset-0 bg-gradient-to-br ${m.accent} opacity-90`} />
             <div className="relative">
               {m.kind === "total" ? (
                 <>
-                  <p className="text-sm font-medium text-gray-500 dark:text-gray-400">{m.title}</p>
-                  <div className="mt-3 flex flex-wrap items-baseline gap-2">
-                    <span className="text-2xl font-semibold tracking-tight text-gray-900 dark:text-gray-100 sm:text-3xl">
+                  <p className="text-[11px] font-medium text-gray-500 dark:text-gray-400">{m.title}</p>
+                  <div className="mt-1 flex flex-wrap items-baseline gap-2">
+                    <span className="text-lg font-semibold tracking-tight text-gray-900 dark:text-gray-100 sm:text-xl">
                       {fmtTokens(m.value)}
                     </span>
                   </div>
-                  <div className="mt-4 flex flex-wrap items-center gap-2">
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                     {m.mom != null ? (
                       <MomBadge pct={m.mom} />
                     ) : (
-                      <span className="text-xs text-gray-400">无环比基线</span>
+                      <span className="text-[11px] text-gray-400">无环比基线</span>
                     )}
-                    <span className="text-xs text-gray-500 dark:text-gray-400">{m.compareLabel}</span>
+                    <span className="text-[11px] text-gray-500 dark:text-gray-400">{m.compareLabel}</span>
                   </div>
                 </>
               ) : (
                 <>
-                  <p className="text-sm font-medium text-gray-500 dark:text-gray-400">{m.title}</p>
-                  <p className="mt-0.5 text-xs text-gray-400 dark:text-gray-500">{m.subtitle}</p>
-                  <div className="mt-3 flex flex-wrap items-baseline gap-2">
-                    <span className="text-2xl font-semibold tracking-tight text-gray-900 dark:text-gray-100 sm:text-3xl">
+                  <p className="text-[11px] font-medium text-gray-500 dark:text-gray-400">{m.title}</p>
+                  <p className="mt-0.5 text-[10px] text-gray-400 dark:text-gray-500">{m.subtitle}</p>
+                  <div className="mt-1 flex flex-wrap items-baseline gap-2">
+                    <span className="text-lg font-semibold tracking-tight text-gray-900 dark:text-gray-100 sm:text-xl">
                       {fmtTokens(m.avgValue)}
                     </span>
                   </div>
-                  <div className="mt-4 rounded-lg border border-amber-200/80 bg-white/80 px-3 py-2 text-xs text-gray-600 dark:border-amber-800/60 dark:bg-gray-900/60 dark:text-gray-300">
+                  <div className="mt-1.5 rounded-md border border-amber-200/80 bg-white/80 px-2 py-1 text-[10px] text-gray-600 dark:border-amber-800/60 dark:bg-gray-900/60 dark:text-gray-300">
                     <span className="font-medium text-gray-700 dark:text-gray-200">峰值日</span>
-                    <span className="mx-1.5 text-gray-300 dark:text-gray-600">·</span>
+                    <span className="mx-1 text-gray-300 dark:text-gray-600">·</span>
                     <span className="font-mono text-gray-800 dark:text-gray-200">{m.peakDay}</span>
-                    <span className="mx-1.5 text-gray-300 dark:text-gray-600">·</span>
+                    <span className="mx-1 text-gray-300 dark:text-gray-600">·</span>
                     <span className="font-semibold tabular-nums text-amber-800 dark:text-amber-200">{fmtTokens(m.peakValue)}</span>
                   </div>
                 </>
@@ -220,17 +313,14 @@ export default function CostAnalysis() {
         ))}
       </section>
 
-      {/* 每日 Token：按 Agent 拆分 */}
-      <section className="app-card p-4 sm:p-6">
+      {/* 每日 Token 消耗情况 */}
+      <section className="app-card p-3 sm:p-4">
         <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">每日 Token 消耗情况</h2>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              近 14 日按 Agent 维度堆叠柱形展示，纵轴为百万 Token（M）；数据源：otel.agent_sessions_logs
-            </p>
+            <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100 sm:text-base">每日 Token 消耗情况</h2>
           </div>
         </div>
-        <div className="mt-4 flex flex-wrap items-center gap-2">
+        <div className="mt-2 flex flex-wrap items-center gap-2">
           <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Agent 筛选</span>
           <button
             type="button"
@@ -264,9 +354,9 @@ export default function CostAnalysis() {
             );
           })}
         </div>
-        <div className="mt-4 h-[300px] w-full sm:h-[320px]">
+        <div className="mt-2 h-[188px] w-full sm:h-[200px]">
           {barRows.length === 0 ? (
-            <p className="flex h-full items-center justify-center text-sm text-gray-400">暂无近 14 日数据</p>
+            <p className="flex h-full items-center justify-center text-sm text-gray-400">暂无数据</p>
           ) : (
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={barRows} margin={{ top: 8, right: 8, left: 0, bottom: 4 }} barCategoryGap="18%">
@@ -303,135 +393,234 @@ export default function CostAnalysis() {
             </ResponsiveContainer>
           )}
         </div>
-        <p className="mt-4 border-t border-gray-100 pt-4 text-xs leading-relaxed text-gray-500 dark:border-gray-800 dark:text-gray-400">
-          {dailyAgentFilter == null
-            ? "堆叠柱形自下而上为各 Agent 贡献；可与下方「Token 消耗趋势」总曲线对照，观察单实例波动与结构变化。"
-            : "当前为单 Agent 日消耗柱形；点击「全部」或再次点击该 Agent 可恢复堆叠展示。"}
-        </p>
       </section>
 
-      {/* Agent Token 消耗占比 */}
-      <section className="app-card p-4 sm:p-6">
-        <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">Agent Token 消耗占比</h2>
-        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          本月（月初至今日）按 Agent 汇总 message_usage_total_tokens；占比按 Agent Token 合计计算
-        </p>
-        <div className="mx-auto mt-6 max-w-3xl">
-          <p className="mb-3 text-center text-xs text-gray-400 dark:text-gray-500">
-            南丁格尔玫瑰图：等分角、半径表示占比（%）
-          </p>
-          <div className="mx-auto w-full min-w-0">
-            {agentShare.length > 0 ? (
-              <AgentTokenRoseChart data={agentShare} height={380} />
+      {/* 大模型消耗占比 + 输入输出占比 并排 */}
+      <section className="grid gap-3 lg:grid-cols-2 lg:items-stretch">
+        {/* 大模型消耗占比 */}
+        <div className="app-card flex flex-col p-3 sm:p-4">
+          <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100 sm:text-base">大模型消耗占比</h2>
+          <div className="mt-2 w-full min-w-0 flex-1">
+            {modelShare.length > 0 ? (
+              <div className="flex flex-col items-center gap-3 sm:flex-row sm:items-center sm:justify-center sm:gap-4">
+                <div className="h-[188px] w-full max-w-[250px] shrink-0">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={modelShare}
+                        dataKey="value"
+                        nameKey="name"
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={38}
+                        outerRadius={66}
+                        paddingAngle={2}
+                      >
+                        {modelShare.map((entry, i) => (
+                          <Cell key={i} fill={entry.fill} stroke="#fff" strokeWidth={2} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        formatter={(v, name) => {
+                          const m = modelShare.find((x) => x.name === name);
+                          return [`${v}% ${m ? `(${fmtTokens(m.tokens)} Tokens)` : ""}`, name];
+                        }}
+                        contentStyle={{ borderRadius: 8, fontSize: 12 }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="w-full min-w-0 max-w-sm flex-1 space-y-1 text-[11px] sm:w-auto">
+                  {modelShare.map((m) => (
+                    <div key={m.name} className="flex min-w-0 items-baseline justify-between gap-3">
+                      <span className="flex min-w-0 items-center gap-1.5 text-gray-600 dark:text-gray-400">
+                        <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: m.fill }} aria-hidden />
+                        <span className="truncate">{m.name}</span>
+                      </span>
+                      <span className="shrink-0 font-semibold tabular-nums text-gray-900 dark:text-gray-100">{m.value}%</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
             ) : (
-              <p className="py-16 text-center text-sm text-gray-400">暂无本月 Agent 数据</p>
+              <p className="py-8 text-center text-sm text-gray-400">暂无模型数据</p>
             )}
           </div>
-          {agentShare.length > 0 ? (
-            <div className="mt-4 grid gap-2 text-xs text-gray-600 dark:text-gray-400 sm:grid-cols-2">
-              {agentShare.map((e) => (
-                <div key={e.name} className="flex min-w-0 items-baseline justify-between gap-2">
-                  <span className="truncate text-gray-600 dark:text-gray-400">{e.name}</span>
-                  <span className="shrink-0 font-semibold tabular-nums text-gray-900 dark:text-gray-100">{e.value}%</span>
+        </div>
+
+        {/* Token 消耗占比：输入 / 输出 */}
+        <div className="app-card flex flex-col p-3 sm:p-4">
+          <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100 sm:text-base">Token 消耗占比：输入 / 输出</h2>
+          <div className="mt-2 w-full min-w-0 flex-1">
+            {hasInOutData ? (
+              <div className="flex flex-col items-center gap-3 sm:flex-row sm:items-center sm:justify-center sm:gap-4">
+                <div className="h-[188px] w-full max-w-[250px] shrink-0">
+                  {inOutPieFiltered.length === 0 ? (
+                    <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-sm text-gray-400">
+                      <p>图例已全部隐藏</p>
+                      <button
+                        type="button"
+                        onClick={() => setInOutHidden(new Set())}
+                        className="text-xs font-medium text-primary hover:underline"
+                      >
+                        恢复显示
+                      </button>
+                    </div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={inOutPieFiltered}
+                          dataKey="value"
+                          nameKey="name"
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={38}
+                          outerRadius={66}
+                          paddingAngle={2}
+                        >
+                          {inOutPieFiltered.map((entry, i) => (
+                            <Cell key={i} fill={entry.fill} stroke="#fff" strokeWidth={2} />
+                          ))}
+                        </Pie>
+                        <Tooltip
+                          formatter={(v) => [`${v}%`, "占比"]}
+                          contentStyle={{ borderRadius: 8, fontSize: 12 }}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  )}
                 </div>
-              ))}
-            </div>
-          ) : null}
-        </div>
-      </section>
-
-      {/* Token 消耗占比：输入 / 输出 */}
-      <section className="app-card p-4 sm:p-6">
-        <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">Token 消耗占比：输入 / 输出</h2>
-        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          本月（月初至今日）按 message_usage_input / message_usage_output 汇总
-        </p>
-        <div className="mx-auto mt-6 max-w-md">
-          {hasInOutData ? (
-            <>
-              <div className="mx-auto h-[240px] w-full max-w-[280px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={inOutPie}
-                      dataKey="value"
-                      nameKey="name"
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={52}
-                      outerRadius={80}
-                      paddingAngle={2}
-                    >
-                      {inOutPie.map((entry, i) => (
-                        <Cell key={i} fill={entry.fill} stroke="#fff" strokeWidth={2} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      formatter={(v) => [`${v}%`, "占比"]}
-                      contentStyle={{ borderRadius: 8, fontSize: 12 }}
-                    />
-                    <Legend wrapperStyle={{ fontSize: 12 }} />
-                  </PieChart>
-                </ResponsiveContainer>
+                <div className="w-full min-w-0 max-w-xs flex-1 space-y-2 text-[11px] sm:w-auto">
+                  <div className="space-y-1">
+                    {inOutPie.map((entry) => {
+                      const hidden = inOutHidden.has(String(entry.name));
+                      return (
+                        <button
+                          key={entry.name}
+                          type="button"
+                          onClick={() => handleInOutLegendClick({ value: entry.name })}
+                          className="flex w-full min-w-0 items-center justify-between gap-3 rounded-md py-0.5 text-left transition hover:bg-gray-50 dark:hover:bg-gray-800/60"
+                        >
+                          <span
+                            className={[
+                              "flex min-w-0 items-center gap-1.5",
+                              hidden ? "text-gray-400 line-through" : "text-gray-600 dark:text-gray-400",
+                            ].join(" ")}
+                          >
+                            <span
+                              className="h-2.5 w-2.5 shrink-0 rounded-full ring-2 ring-white dark:ring-gray-900"
+                              style={{ background: entry.fill }}
+                              aria-hidden
+                            />
+                            <span className="truncate">{entry.name}</span>
+                          </span>
+                          <span
+                            className={[
+                              "shrink-0 font-semibold tabular-nums",
+                              hidden
+                                ? "text-gray-400 line-through"
+                                : entry.name === "输入 Token"
+                                  ? "text-primary"
+                                  : "text-emerald-700 dark:text-emerald-400",
+                            ].join(" ")}
+                          >
+                            {entry.value}%
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="border-t border-gray-100 pt-2 dark:border-gray-800">
+                    <div className="flex flex-col gap-1.5 text-gray-600 dark:text-gray-400 sm:flex-row sm:flex-wrap sm:gap-x-6 sm:gap-y-1">
+                      <span>
+                        输入：
+                        <span className="font-semibold text-primary">{snapshot?.inOut?.inputPct ?? 0}%</span>
+                      </span>
+                      <span>
+                        输出：
+                        <span className="font-semibold text-emerald-700 dark:text-emerald-400">
+                          {snapshot?.inOut?.outputPct ?? 0}%
+                        </span>
+                      </span>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div className="mt-4 flex justify-center gap-8 text-xs text-gray-600 dark:text-gray-400">
-                <span>
-                  输入：<span className="font-semibold text-primary">{snapshot?.inOut?.inputPct ?? 0}%</span>
-                </span>
-                <span>
-                  输出：<span className="font-semibold text-emerald-700 dark:text-emerald-400">{snapshot?.inOut?.outputPct ?? 0}%</span>
-                </span>
-              </div>
-            </>
-          ) : (
-            <p className="py-12 text-center text-sm text-gray-400">暂无本月输入/输出 Token 数据</p>
-          )}
-        </div>
-      </section>
-
-      {/* Token 消耗趋势 + 输入输出说明 */}
-      <section className="app-card p-4 sm:p-6">
-        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">Token 消耗趋势</h2>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">近 14 日总 Token（百万 Token，M）</p>
+            ) : (
+              <p className="py-8 text-center text-sm text-gray-400">暂无本月输入/输出 Token 数据</p>
+            )}
           </div>
         </div>
-        <div className="mt-4 h-[280px] w-full">
-          {trend14.length === 0 ? (
-            <p className="flex h-full items-center justify-center text-sm text-gray-400">暂无趋势数据</p>
-          ) : (
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={trend14} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="tokenFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#165DFF" stopOpacity={0.35} />
-                    <stop offset="100%" stopColor="#165DFF" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
-                <XAxis dataKey="date" tick={{ fontSize: 11, fill: "#6b7280" }} tickMargin={8} />
-                <YAxis tick={{ fontSize: 11, fill: "#6b7280" }} width={36} />
-                <Tooltip
-                  contentStyle={{ borderRadius: 8, fontSize: 12 }}
-                  formatter={(v) => [`${v}M`, "Token(约)"]}
-                  labelFormatter={(l) => `日期 ${l}`}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="tokens"
-                  name="Token 消耗"
-                  stroke="#165DFF"
-                  strokeWidth={2}
-                  fill="url(#tokenFill)"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          )}
+      </section>
+
+      {/* Agent 占比 + Top10 会话 并排 */}
+      <section className="grid gap-3 lg:grid-cols-2 lg:items-start">
+        <div className="app-card p-3 sm:p-4">
+          <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100 sm:text-base">Agent Token 消耗占比</h2>
+          <div className="mx-auto mt-2 w-full min-w-0 max-w-3xl">
+            {agentShare.length > 0 ? (
+              <AgentTokenRoseChart data={agentShare} height={195} />
+            ) : (
+              <p className="py-8 text-center text-sm text-gray-400">暂无本月 Agent 数据</p>
+            )}
+            {agentShare.length > 0 ? (
+              <div className="mt-2 grid gap-1 text-[11px] text-gray-600 dark:text-gray-400 sm:grid-cols-2">
+                {agentShare.map((e) => (
+                  <div key={e.name} className="flex min-w-0 items-baseline justify-between gap-2">
+                    <span className="truncate text-gray-600 dark:text-gray-400">{e.name}</span>
+                    <span className="shrink-0 font-semibold tabular-nums text-gray-900 dark:text-gray-100">{e.value}%</span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
         </div>
-        <p className="mt-4 border-t border-gray-100 pt-4 text-xs leading-relaxed text-gray-500 dark:border-gray-800 dark:text-gray-400">
-          输入与输出占比见「Token 消耗占比：输入 / 输出」独立区块中的环形图；趋势图为全量 Token 随时间变化，可与业务发布、活动窗口对照分析。
-        </p>
+
+        {/* Top10 会话 Token 消耗 */}
+        <div className="app-card p-3 sm:p-4">
+          <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100 sm:text-base">Top10 会话 Token 消耗</h2>
+          <div className="mt-2 overflow-x-auto">
+            {topSessions.length > 0 ? (
+              <table className="w-full text-[11px]">
+                <thead>
+                  <tr className="border-b border-gray-100 text-gray-500 dark:border-gray-800 dark:text-gray-400">
+                    <th className="pb-1.5 pr-3 text-left font-medium">会话</th>
+                    <th className="pb-1.5 pr-3 text-right font-medium">总 Token</th>
+                    <th className="pb-1.5 pr-3 text-right font-medium">输入</th>
+                    <th className="pb-1.5 text-right font-medium">输出</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {topSessions.map((s, i) => (
+                    <tr
+                      key={s.sessionId}
+                      className="border-b border-gray-50 dark:border-gray-800/60 last:border-0"
+                    >
+                      <td className="py-1 pr-3">
+                        <div className="truncate font-mono text-gray-500 dark:text-gray-400">{s.sessionId}</div>
+                        <div className="truncate text-[10px] text-gray-400">{s.agentName}</div>
+                      </td>
+                      <td className="py-1 pr-3 text-right tabular-nums font-medium text-gray-900 dark:text-gray-100">
+                        {s.tokens}M
+                      </td>
+                      <td className="py-1 pr-3 text-right tabular-nums text-primary dark:text-blue-300">
+                        <div>{s.inputPct > 0 ? `${s.inputPct}%` : "—"}</div>
+                        <div className="text-[10px] text-gray-400">{s.inputTokens > 0 ? `${s.inputTokens}M` : ""}</div>
+                      </td>
+                      <td className="py-1 text-right tabular-nums text-emerald-700 dark:text-emerald-400">
+                        <div>{s.outputPct > 0 ? `${s.outputPct}%` : "—"}</div>
+                        <div className="text-[10px] text-gray-400">{s.outputTokens > 0 ? `${s.outputTokens}M` : ""}</div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p className="py-8 text-center text-sm text-gray-400">暂无会话数据</p>
+            )}
+          </div>
+        </div>
       </section>
 
       <p className="text-center text-xs text-gray-400 dark:text-gray-500">数据来自 Doris · otel 库</p>

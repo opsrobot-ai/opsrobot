@@ -160,18 +160,18 @@ export default function LlmCost() {
 
   return (
     <div className="space-y-6">
+      {err ? (
+        <div className="rounded-lg border border-rose-200 bg-rose-50/80 px-4 py-3 text-sm text-rose-800 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-200">
+          {err}
+        </div>
+      ) : null}
+
       <CostTimeRangeFilter
         rangeStart={rangeStart}
         rangeEnd={rangeEnd}
         onChangeStart={setRangeStart}
         onChangeEnd={setRangeEnd}
       />
-
-      {err ? (
-        <div className="rounded-lg border border-rose-200 bg-rose-50/80 px-4 py-3 text-sm text-rose-800 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-200">
-          {err}
-        </div>
-      ) : null}
 
       <section className="app-card p-4 sm:p-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
