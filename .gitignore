@@ -144,3 +144,4 @@ datamodel/
 dist/
 public
 .DS_Store
+.claude
