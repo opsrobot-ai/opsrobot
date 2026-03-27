@@ -19,7 +19,7 @@ OpenClaw 可观测性平台，基于 KWeaver Core 框架开发，使用 OTel 协
 核心能力：依托多维业务核算模型，精准拆解并追踪基础算力、员工个体及业务部门维度的费用消耗情况。
 业务价值 (赋能 CEO / CFO)：驱动精细化运营，拒绝算力“糊涂账”，将抽象的大模型 Token 直观转化为清晰的业务 ROI。
 
-![alt text](overview.png)
+![alt text](overview_zh.png)
 
 ## 项目架构
 
@@ -192,6 +192,32 @@ vector --config vector.yaml
 
 ---
 
+## 版本兼容性 
+本项目紧随 OpenClaw 社区的发展，目前已基于 OpenClaw 最新版本 完成了开发、功能验证及稳定性测试。为确保各项可观测性指标的准确抓取与展示，建议在以下环境中使用：
+
+组件
+推荐版本
+说明
+OpenClaw
+latest (v1.x+)
+核心调度与管理平台
+Linux Kernel
+4.18+
+eBPF 探针运行的最低内核要求
+Docker
+20.10.0+
+推荐容器运行时环境
+Docker Compose
+v2.0.0+
+推荐用于本地快速编排验证
+
+
+## 参与贡献与社区：
+我们欢迎并鼓励任何形式的贡献！无论是提交 Bug 反馈、完善文档，还是提交核心代码的 PR，都是对 opsRobot 开源社区的巨大支持。
+贡献指南: 请阅读我们的 [CONTRIBUTING.md 链接] 了解如何开始。
+社区交流:微信交流群二维码
+
+
 ## 微信交流群
 
 扫描下方二维码加入微信交流群：
@@ -199,6 +225,10 @@ vector --config vector.yaml
 ![WeChat QR Code](./wechat-qr.png)
 
 ---
+
+
+
+
 
 ## License
 
