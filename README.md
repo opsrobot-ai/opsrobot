@@ -8,16 +8,21 @@ Built on the **KWeaver Core** framework, OpenClaw Observability Platform integra
 
 ---
 
-## Table of Contents
+## Core Features & Business Value
 
-- [Features](#features)
-- [Architecture](#architecture)
-- [Quick Start](#quick-start)
-- [Configuration](#configuration)
-- [Development](#development)
-- [Environment Variables](#environment-variables)
-- [Community](#community)
-- [License](#license)
+### 24/7 Observability: Making OpenClaw Execution "White-Box"
+- **Core Capability**: Build a comprehensive observation system providing lifecycle guarantees including pre-event (automated巡检), during-event (real-time monitoring & alerting), and post-event (precise fault diagnosis)
+- **Business Value (for IT Ops)**: Full-process transparency, eliminating black-box troubleshooting, ensuring 100% visibility and control of system status
+
+### Risk Perception: Enterprise-Grade "Brake System" for OpenClaw
+- **Core Capability**: Establish robust security defenses covering real-time control (authorization management, compliance validation, storm blocking) and closed-loop auditing (audit traceability)
+- **Business Value (for CIO)**:坚守系统底线, eliminating unauthorized calls and data security risks, achieving a perfect closed loop between business execution and security compliance
+
+### Productivity Assessment: Every Compute Investment Made Clear
+- **Core Capability**: Based on multi-dimensional business accounting models, accurately decompose and track cost consumption across infrastructure computing, individual employees, and business departments
+- **Business Value (for CEO/CFO)**: Drive refined operations, reject "confusing compute accounts", and intuitively convert abstract LLM Tokens into clear business ROI
+
+![alt text](overview_en.png)
 
 ---
 
@@ -86,7 +91,7 @@ Built on the **KWeaver Core** framework, OpenClaw Observability Platform integra
 | **Data Pipeline** | Vector | - | Data collection, transformation, and ingestion pipeline |
 | **Data Source** | OpenClaw Agent | - | AI Agent runtime, source of log output |
 
-### Data Flow
+### How It Works
 
 ```
 ┌─────────┐    ┌───────────────────┐    ┌─────────────────┐    ┌──────────────┐
@@ -110,7 +115,6 @@ Built on the **KWeaver Core** framework, OpenClaw Observability Platform integra
 
 - Docker Desktop
 - Node.js 18+
-- (Optional) Vector for log collection
 
 ### Method 1: Docker Compose - Image Deployment (Recommended)
 
@@ -136,11 +140,20 @@ After services start, access:
 | Frontend UI | http://localhost:3000 |
 | Doris FE | http://localhost:8030 |
 
----
+### Method 3: Local Development
 
-## Configuration
+```bash
+# Install dependencies
+npm install
 
-### Vector Data Collection Configuration
+# Start backend API (port 8787)
+npm run api
+
+# In a separate terminal, start frontend dev server (port 3000)
+npm run dev
+```
+
+### Vector Configuration
 
 Modify the data source paths in `vector.yaml` to point to your actual OpenClaw log directory:
 
@@ -154,33 +167,16 @@ sources:
       - "/path/to/openclaw/agents/*/sessions/*.jsonl"
 ```
 
-### Vector Installation (macOS)
+#### Vector Installation (macOS)
 
 ```bash
 brew tap vectordotdev/brew && brew install vector
 ```
 
-### Start Vector
+#### Start Vector
 
 ```bash
 vector --config vector.yaml
-```
-
----
-
-## Development
-
-### Local Development Setup
-
-```bash
-# Install dependencies
-npm install
-
-# Start backend API (port 8787)
-npm run api
-
-# In a separate terminal, start frontend dev server (port 3000)
-npm run dev
 ```
 
 ---
@@ -206,14 +202,6 @@ npm run dev
 Scan the QR code below to join the WeChat community for discussions:
 
 ![WeChat QR Code](./wechat-qr.png)
-
-### Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-### Issues
-
-If you encounter any issues, please file them on our [GitHub Issues](https://github.com/openclaw-ai/observability-platform/issues) page.
 
 ---
 
