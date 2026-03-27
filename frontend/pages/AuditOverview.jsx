@@ -107,6 +107,13 @@ export default function AuditOverview() {
 
   return (
     <div className="space-y-8">
+      {error && (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/40 dark:text-amber-200">
+          无法加载：{error}
+          <span className="mt-1 block text-xs">开发环境请使用 npm run dev；预览请先 npm run api 再 npm run preview。</span>
+        </p>
+      )}
+
       <section className="app-card p-4 sm:p-6">
         <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">审计概览</h2>
         <p className="mt-1 text-xs leading-relaxed text-gray-500 dark:text-gray-400">
@@ -116,13 +123,6 @@ export default function AuditOverview() {
           聚合：核心指标（今日/本周/本月）、风险统计、实时态势、近 7 日趋势与 TOP 排行。风险分级为日志行级 SQL 近似，与前端「风险感知」启发式可能略有差异。
         </p>
       </section>
-
-      {error && (
-        <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/40 dark:text-amber-200">
-          无法加载：{error}
-          <span className="mt-1 block text-xs">开发环境请使用 npm run dev；预览请先 npm run api 再 npm run preview。</span>
-        </p>
-      )}
 
       {loading && !error && <LoadingSpinner message="正在加载仪表盘…" />}
 

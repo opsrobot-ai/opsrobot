@@ -39,7 +39,9 @@ const server = http.createServer(async (req, res) => {
 
   if (url.startsWith("/api/cost-overview")) {
     try {
-      const snapshot = await queryCostOverviewSnapshot();
+      const u = new URL(url, "http://127.0.0.1");
+      const td = Number(u.searchParams.get("trendDays") ?? "14");
+      const snapshot = await queryCostOverviewSnapshot({ trendDays: td });
       sendJson(res, 200, snapshot);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
