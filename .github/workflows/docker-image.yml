@@ -37,7 +37,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ./Dockerfile
+          file: ./Dockerfile.api
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ghcr.io/aishu-opsrobot/openclaw-observability-api:latest,ghcr.io/aishu-opsrobot/openclaw-observability-api:${{ github.sha }}
@@ -48,7 +48,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ./Dockerfile.api
+          file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ghcr.io/aishu-opsrobot/openclaw-observability-web:latest,ghcr.io/aishu-opsrobot/openclaw-observability-web:${{ github.sha }}
