@@ -5,6 +5,7 @@ import LogSearch from "./LogSearch.jsx";
 import DigitalEmployeeOverview from "./DigitalEmployeeOverview.jsx";
 import DigitalEmployeePortrait from "./DigitalEmployeePortrait.jsx";
 import CostAnalysis from "./CostAnalysis.jsx";
+import CostOverview2 from "./CostOverview2.jsx";
 import AgentCostDetail from "./AgentCostDetail.jsx";
 import LlmCost from "./LlmCost.jsx";
 import FullChainTraceability from "./FullChainTraceability.jsx";
@@ -29,6 +30,7 @@ const PAGE_META = {
   logs: { title: "日志查询", subtitle: "Doris otel.agent_sessions_logs 检索、趋势与详情" },
   inspection: { title: "定期巡检", subtitle: "巡检任务与报告" },
   "cost-overview": { title: "成本概览", subtitle: "总成本、日均与维度占比、趋势" },
+  "cost-overview-2": { title: "成本概览2", subtitle: "总成本、日均与维度占比、趋势" },
   "agent-cost-detail": { title: "Agent 成本列表", subtitle: "总消耗、单任务均值、调用量与成功率" },
   "llm-cost": { title: "LLM 成本明细", subtitle: "按模型维度的 Token 与费用" },
 };
@@ -55,7 +57,7 @@ const NAV = [
       // { id: "audit", label: "行为审计" },
       { id: "config-change", label: "配置变更" },
       { id: "session-audit", label: "会话审计" },
-      { id: "traceability", label: "全链路溯源" },
+      // { id: "traceability", label: "全链路溯源" },
     ],
   },
   { id: "logs", label: "日志查询", icon: "logs" },
@@ -66,6 +68,7 @@ const NAV = [
     icon: "costAnalysis",
     children: [
       { id: "cost-overview", label: "成本概览" },
+      { id: "cost-overview-2", label: "成本概览2" },
       { id: "agent-cost-detail", label: "Agent成本列表" },
       { id: "llm-cost", label: "LLM成本明细" },
     ],
@@ -727,6 +730,8 @@ export default function Dashboard() {
             <LogSearch />
           ) : activeNav === "cost-overview" ? (
             <CostAnalysis />
+          ) : activeNav === "cost-overview-2" ? (
+            <CostOverview2 />
           ) : activeNav === "agent-cost-detail" ? (
             <AgentCostDetail />
           ) : activeNav === "llm-cost" ? (

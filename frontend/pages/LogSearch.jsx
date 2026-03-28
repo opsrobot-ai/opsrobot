@@ -291,14 +291,14 @@ export default function LogSearch() {
 
   return (
     <div className="space-y-6">
-      {legend ? (
-        <p className="text-xs leading-relaxed text-gray-500 dark:text-gray-400">{legend}</p>
-      ) : null}
-
       {err ? (
         <div className="rounded-lg border border-rose-200 bg-rose-50/80 px-4 py-3 text-sm text-rose-800 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-200">
           {err}
         </div>
+      ) : null}
+
+      {legend ? (
+        <p className="text-xs leading-relaxed text-gray-500 dark:text-gray-400">{legend}</p>
       ) : null}
 
       <section className="app-card p-4 sm:p-6">

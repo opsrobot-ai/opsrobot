@@ -4,6 +4,7 @@ import {
 } from "../backend/agentSessionsQuery.mjs";
 import { queryAuditDashboardMetrics } from "../backend/security-audit/audit-dashboard-query.mjs";
 import { queryCostOverviewSnapshot } from "../backend/cost-analysis/cost-overview-query.mjs";
+import { queryCostOverview2Data } from "../backend/cost-analysis/cost-overview-2-query.mjs";
 import { queryAgentCostList, queryLlmCostDetail } from "../backend/cost-analysis/agent-llm-cost-tables-query.mjs";
 import {
   listOtelAgentSessionsLogTables,
@@ -36,9 +37,36 @@ export function agentSessionsDevApi() {
         const url = req.url || "";
         if (req.method !== "GET") return next();
 
-        if (url.startsWith("/api/cost-overview")) {
+        // 精确匹配优先 - cost-overview-2 必须在 cost-overview 之前
+        if (url.startsWith("/api/cost-overview-2")) {
           try {
-            const snapshot = await queryCostOverviewSnapshot();
+            const u = new URL(url, "http://vite.local");
+            const filters = {
+              timePreset: u.searchParams.get("timePreset") ?? "7",
+              timeStart: u.searchParams.get("timeStart") ?? "",
+              timeEnd: u.searchParams.get("timeEnd") ?? "",
+              model: u.searchParams.get("model") ?? "all",
+              env: u.searchParams.get("env") ?? "all",
+              userType: u.searchParams.get("userType") ?? "all",
+              projectId: u.searchParams.get("projectId") ?? "",
+            };
+            // 转换 timePreset 为数字或字符串
+            const pt = filters.timePreset;
+            filters.timePreset = isNaN(Number(pt)) ? pt : Number(pt);
+            const data = await queryCostOverview2Data(filters);
+            sendJson(res, 200, data);
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            sendJson(res, 500, { error: msg });
+          }
+          return;
+        }
+
+        if (url === "/api/cost-overview" || url.startsWith("/api/cost-overview?")) {
+          try {
+            const u = new URL(url, "http://vite.local");
+            const td = Number(u.searchParams.get("trendDays") ?? "14");
+            const snapshot = await queryCostOverviewSnapshot({ trendDays: td });
             sendJson(res, 200, snapshot);
           } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);

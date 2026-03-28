@@ -5,7 +5,7 @@ api:
 sources:
   sessions:
     type: exec
-    command: [ "cat", "/Users/lxg/.openclaw/agents/main/sessions/sessions.json" ] #修改为实际的 openclaw  session 日志路径
+    command: [ "sh", "-c", "tr -d '\n' < /Users/lxg/.openclaw/agents/main/sessions/sessions.json" ]
     mode: scheduled
     scheduled:
       exec_interval_secs: 60
@@ -39,41 +39,34 @@ sources:
       strategy: device_and_inode
 
 transforms:
-  # 1. 过滤掉 stderr 事件，只保留 stdout
-  filter_stdout:
-    type: filter
-    inputs:
-    - sessions
-    condition: '.stream == "stdout"'
-
-  # 2. 将所有行合并为一个完整的 JSON 字符串
-  aggregate_json:
-    type: reduce
-    inputs:
-    - filter_stdout
-    group_by: []
-    expire_after_ms: 5000
-    merge_strategies:
-      message: concat_newline
-
-  # 3. 解析 JSON，遍历每个 key-value 拆成独立记录
+  #解析 JSON，遍历每个 key-value 拆成独立记录
   session_transform:
     type: remap
     inputs:
-    - aggregate_json
+    - sessions
     source: |
-  
       parsed = parse_json!(string!(.message))
       obj = object!(parsed)
       ks = keys(obj)
       result = []
       for_each(ks) -> |_idx, key| {
         entry = get!(obj, [key])
+
+        session_key_parts = split(key, ":")        
+        agent_name = if length(session_key_parts) >= 2 {
+            session_key_parts[1]
+        } else {
+            key
+        }
+
         result = push(result, {
           "session_id": string(get(entry, ["sessionId"]) ?? "") ?? "",
           "session_key": string(get(entry, ["systemPromptReport","sessionKey"]) ?? "") ?? "",
           "display_name": string(get(entry, ["displayName"]) ?? "") ?? "",
-          "agent_name": key,
+          "agent_name": agent_name,
+          "started_at": get(entry, ["startedAt"]) ?? null,
+          "updated_at": get(entry, ["updatedAt"]) ?? null,
+          "ended_at": get(entry, ["endedAt"]) ?? null,
           "system_sent": get(entry, ["systemSent"]) ?? null,
           "aborted_last_run": get(entry, ["abortedLastRun"]) ?? null,
           "chat_type": string(get(entry, ["chatType"]) ?? "") ?? "",
@@ -97,7 +90,7 @@ transforms:
       }
       . = result
 
-  # 4. 采集 JSONL 会话日志文件，从文件路径提取 sessionId，提取解析所有需要的嵌套字段
+  #采集 JSONL 会话日志文件，从文件路径提取 sessionId，提取解析所有需要的嵌套字段
   session_logs_transform:
     type: remap
     inputs:
@@ -152,7 +145,7 @@ transforms:
       del(.file)
       del(.source_type)
 
-  # 5. 解析 gateway 日志格式
+  # 解析 gateway 日志格式
   # 日志格式：2026-03-24T13:36:06.199+08:00 [canvas] host mounted at http://...
   gateway_logs_transform:
     type: remap
@@ -175,20 +168,14 @@ transforms:
       # 格式：时间戳 [module] 日志内容
       parts, err = parse_regex(raw_message, r'^(?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+[+-]\d{2}:\d{2})\s+\[(?P<module>[^\]]+)\]\s+(?P<content>.*)$')
 
-      if err == null && parts != null {
-        ts_raw = string!(get!(parts, ["ts"]))
-        # 转换时间格式：2026-03-24T13:36:06.199+08:00 -> 2026-03-24 13:36:06
-        event_time_str = replace(ts_raw, "T", " ")
-        event_parts = split(event_time_str, ".")
-        .event_time = get!(event_parts, [0])
-        .module = string!(get!(parts, ["module"]))
-        .log_attributes = raw_message
-      } else {
-        # 解析失败时设置默认值
-        .event_time = ""
-        .module = ""
-        .log_attributes = raw_message
+    
+      ts_raw = string!(get!(parts, ["ts"]))
+      parsed_ts, err = parse_timestamp(ts_raw, "%+")
+      if err == null {
+          .event_time = format_timestamp!(parsed_ts, "%Y-%m-%d %H:%M:%S")
       }
+      .module = string!(get!(parts, ["module"]))
+      .log_attributes = raw_message
 
       # 清理无用字段
       del(.message)
@@ -197,40 +184,44 @@ transforms:
       del(.timestamp)
       del(.host)
 
-  # 6. 解析 config-audit JSONL 日志格式
+  # 解析 config-audit JSONL 日志格式
   # 每行一个 JSON 对象，提取 event_time 和 log_attributes
   audit_logs_transform:
     type: remap
     inputs:
     - audit_logs
     drop_on_error: false
-    drop_on_abort: false
+    drop_on_abort: true
     source: |
       raw_message = string(.message) ?? ""
 
       # 解析 JSON
       obj, err = parse_json(raw_message)
 
-      if err == null && obj != null {
-        # 提取 ts 字段作为 event_time
-        ts_val = get(obj, ["ts"]) ?? ""
-        if ts_val != "" {
-          # 转换时间格式：2026-03-24T09:22:54.136Z -> 2026-03-24 09:22:54
-          ts_str = string!(ts_val)
-          # 替换 T 为空格
-          ts_str = replace(ts_str, "T", " ")
-          # 截取到秒（去掉毫秒 .136 和时区 Z）
-          parts = split(ts_str, ".")
-          .event_time = get!(parts, [0])
-        } else {
-          .event_time = ""
-        }
-        # log_attributes 为当前行记录（整个 JSON 对象）
-        .log_attributes = obj
-      } else {
-        .event_time = ""
-        .log_attributes = raw_message
+      if err != null {
+        # JSON 解析失败，跳过该事件
+        log("WARN: Failed to parse JSON, skipping: " + raw_message)
+        abort
       }
+
+      if obj == null {
+        abort
+      }
+
+      # 提取 ts 字段作为 event_time
+      ts_raw = get(obj, ["ts"]) ?? ""
+      if ts_raw == "" {
+        log("WARN: ts field is empty, skipping")
+        abort
+      }
+
+      parsed_ts, err = parse_timestamp(ts_raw, "%+")
+      if err == null {
+          .event_time = format_timestamp!(parsed_ts, "%Y-%m-%d %H:%M:%S")
+      }
+
+      # log_attributes 为当前行记录（整个 JSON 对象）
+      .log_attributes = obj
 
       # 清理无用字段
       del(.message)
@@ -240,19 +231,15 @@ transforms:
       del(.host)
 
 sinks:
-  print_to_console:
-    type: console
-    inputs:
-    - session_transform
-    encoding:
-      codec: json
-
-  session_to_doris:
+  session_to_doris: &sink_template
     type: http
     inputs:
     - session_transform
     uri: "http://127.0.0.1:8040/api/opsRobot/agent_sessions/_stream_load"
     method: put
+    batch:
+      max_events: 100
+      timeout_secs: 10
     auth:
       strategy: basic
       user: "root"
@@ -264,85 +251,58 @@ sinks:
         Expect: "100-continue"
         format: "json"
         strip_outer_array: "true"
-        partial_columns: "true"
+        read_json_by_line: "true"
 
-  # 会话日志输出到控制台（调试用）
-  # session_logs_to_console:
-  #   type: console
-  #   inputs:
-  #   - session_logs_transform
-  #   encoding:
-  #     codec: json
+
 
   # 会话日志输出到 Doris agent_sessions_logs 表
   session_logs_to_doris:
-    type: http
+    <<: *sink_template
     inputs:
     - session_logs_transform
-    uri: "http://127.0.0.1:8040/api/opsRobot/agent_sessions_logs/_stream_load" # doris
-    method: put
-    auth:
-      strategy: basic
-      user: "root"
-      password: ""
-    encoding:
-      codec: json
-    request:
-      headers:
-        Expect: "100-continue"
-        format: "json"
-        strip_outer_array: "true"
+    uri: "http://127.0.0.1:8040/api/opsRobot/agent_sessions_logs/_stream_load"
 
-  # gateway 日志输出到控制台（调试用）
-  # gateway_logs_to_console:
-  #   type: console
-  #   inputs:
-  #   - gateway_logs_transform
-  #   encoding:
-  #     codec: json
+
 
   # gateway 日志输出到 Doris gateway_logs 表
   gateway_logs_to_doris:
-    type: http
+    <<: *sink_template
     inputs:
     - gateway_logs_transform
     uri: "http://127.0.0.1:8040/api/opsRobot/gateway_logs/_stream_load"
-    method: put
-    auth:
-      strategy: basic
-      user: "root"
-      password: ""
-    encoding:
-      codec: json
-    request:
-      headers:
-        Expect: "100-continue"
-        format: "json"
-        strip_outer_array: "true"
+        
 
-  # config-audit 日志输出到控制台（调试用）
-  # audit_logs_to_console:
-  #   type: console
-  #   inputs:
-  #   - audit_logs_transform
-  #   encoding:
-  #     codec: json
+
 
   # config-audit 日志输出到 Doris audit_logs 表
   audit_logs_to_doris:
-    type: http
+    <<: *sink_template
     inputs:
     - audit_logs_transform
     uri: "http://127.0.0.1:8040/api/opsRobot/audit_logs/_stream_load"
-    method: put
-    auth:
-      strategy: basic
-      user: "root"
-      password: ""
-    encoding:
-      codec: json
-    request:
-      headers:
-        Expect: "100-continue"
-        format: "json"
-        strip_outer_array: "true"
+
+
+  # session_to_console: &console_template
+  #   type: console
+  #   inputs:
+  #   - session_transform
+  #   encoding:
+  #     codec: json
+
+  # # 会话日志输出到控制台（调试用）
+  # session_logs_to_console:
+  #   <<: *console_template
+  #   inputs:
+  #   - session_logs_transform
+
+  # # # gateway 日志输出到控制台（调试用）
+  # gateway_logs_to_console:
+  #   <<: *console_template
+  #   inputs:
+  #   - gateway_logs_transform
+
+  # # # config-audit 日志输出到控制台（调试用）
+  # audit_logs_to_console:
+  #   <<: *console_template
+  #   inputs:
+  #   - audit_logs_transform
