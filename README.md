@@ -4,19 +4,19 @@
 
 **OpenClaw Observability Platform** is an enterprise-grade observability solution designed for AI Agents built on the OpenClaw framework. It provides comprehensive monitoring, auditing, and cost analysis capabilities for digital employees.
 
-Built on the **KWeaver Core** framework, OpenClaw Observability Platform integrates **OpenTelemetry (OTel)** and **eBPF** technologies to achieve full链路 (end-to-end) tracing and monitoring of AI Agents. Through rapid fault isolation, security compliance management, and lean resource optimization, it ensures reliable operation and scalable performance for AI-powered business ecosystems.
+Built on the **KWeaver Core** framework, OpenClaw Observability Platform integrates **OpenTelemetry (OTel)** and **eBPF** technologies to achieve full end-to-end tracing and monitoring of AI Agents. Through rapid fault isolation, security compliance management, and lean resource optimization, it ensures reliable operation and scalable performance for AI-powered business ecosystems.
 
 ---
 
 ## Core Features & Business Value
 
 ### 24/7 Observability: Making OpenClaw Execution "White-Box"
-- **Core Capability**: Build a comprehensive observation system providing lifecycle guarantees including pre-event (automated巡检), during-event (real-time monitoring & alerting), and post-event (precise fault diagnosis)
+- **Core Capability**: Build a comprehensive observation system providing lifecycle guarantees including pre-event (automated inspection), during-event (real-time monitoring & alerting), and post-event (precise fault diagnosis)
 - **Business Value (for IT Ops)**: Full-process transparency, eliminating black-box troubleshooting, ensuring 100% visibility and control of system status
 
 ### Risk Perception: Enterprise-Grade "Brake System" for OpenClaw
 - **Core Capability**: Establish robust security defenses covering real-time control (authorization management, compliance validation, storm blocking) and closed-loop auditing (audit traceability)
-- **Business Value (for CIO)**:坚守系统底线, eliminating unauthorized calls and data security risks, achieving a perfect closed loop between business execution and security compliance
+- **Business Value (for CIO)**: Maintaining system security baseline, eliminating unauthorized calls and data security risks, achieving a perfect closed loop between business execution and security compliance
 
 ### Productivity Assessment: Every Compute Investment Made Clear
 - **Core Capability**: Based on multi-dimensional business accounting models, accurately decompose and track cost consumption across infrastructure computing, individual employees, and business departments
