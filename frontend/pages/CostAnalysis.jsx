@@ -594,11 +594,11 @@ export default function CostAnalysis() {
                 <tbody>
                   {topSessions.map((s, i) => (
                     <tr
-                      key={s.sessionId}
+                      key={s.session_id}
                       className="border-b border-gray-50 dark:border-gray-800/60 last:border-0"
                     >
                       <td className="py-1 pr-3">
-                        <div className="truncate font-mono text-gray-500 dark:text-gray-400">{s.sessionId}</div>
+                        <div className="truncate font-mono text-gray-500 dark:text-gray-400">{s.session_id}</div>
                         <div className="truncate text-[10px] text-gray-400">{s.agentName}</div>
                       </td>
                       <td className="py-1 pr-3 text-right tabular-nums font-medium text-gray-900 dark:text-gray-100">

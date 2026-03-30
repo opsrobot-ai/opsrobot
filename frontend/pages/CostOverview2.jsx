@@ -275,7 +275,7 @@ function SessionTable({ data, onSort, sortField, sortDir }) {
       <table className="w-full min-w-[900px] border-collapse text-left text-sm">
         <thead>
           <tr className="border-b border-gray-100 bg-gray-50/90 dark:border-gray-800 dark:bg-gray-800/80">
-            <SortableTableTh field="sessionId" label="会话ID" sortField={sortField} sortDir={sortDir} onSort={onSort} className="w-[140px]" />
+            <SortableTableTh field="session_id" label="会话ID" sortField={sortField} sortDir={sortDir} onSort={onSort} className="w-[140px]" />
             <SortableTableTh field="model" label="模型" sortField={sortField} sortDir={sortDir} onSort={onSort} className="w-[100px]" />
             <SortableTableTh field="tokenM" label="Token(M)" sortField={sortField} sortDir={sortDir} onSort={onSort} className="w-[90px]" numeric />
             <SortableTableTh field="cost" label="消耗(元)" sortField={sortField} sortDir={sortDir} onSort={onSort} className="w-[100px]" numeric />
@@ -287,10 +287,10 @@ function SessionTable({ data, onSort, sortField, sortDir }) {
         <tbody className="divide-y divide-gray-100 bg-white dark:divide-gray-800 dark:bg-gray-900/50">
           {data.map((row, i) => (
             <tr
-              key={row.sessionId}
+              key={row.session_id}
               className={`transition-colors hover:bg-primary-soft/30 dark:hover:bg-primary/10 ${i % 2 === 1 ? "bg-gray-50/50 dark:bg-gray-800/30" : ""}`}
             >
-              <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-primary">{row.sessionId}</td>
+              <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-primary">{row.session_id}</td>
               <td className="whitespace-nowrap px-4 py-3 text-gray-700 dark:text-gray-300">{row.model}</td>
               <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-gray-900 dark:text-gray-100">{typeof row.tokenM === "number" ? row.tokenM.toFixed(2) : row.tokenM}</td>
               <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums font-medium text-gray-900 dark:text-gray-100">¥{typeof row.cost === "number" ? row.cost.toFixed(4) : row.cost}</td>

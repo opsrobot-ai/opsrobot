@@ -125,7 +125,7 @@ async function queryKpiData(conn, startDay, endDay) {
       COALESCE(SUM(\`message_usage_cache_read\`), 0) AS cache_read_tokens,
       COALESCE(SUM(\`message_usage_cache_write\`), 0) AS cache_write_tokens,
       COUNT(DISTINCT \`message_model\`) AS model_count,
-      COUNT(DISTINCT \`sessionId\`) AS session_count
+      COUNT(DISTINCT \`session_id\`) AS session_count
     FROM agent_sessions_logs
     WHERE LENGTH(\`timestamp\`) >= 10
       AND SUBSTR(\`timestamp\`, 1, 10) >= ?
@@ -161,7 +161,7 @@ async function queryMonthCumulativeData(conn) {
       COALESCE(SUM(\`message_usage_input\`), 0) AS input_tokens,
       COALESCE(SUM(\`message_usage_output\`), 0) AS output_tokens,
       COUNT(DISTINCT \`message_model\`) AS model_count,
-      COUNT(DISTINCT \`sessionId\`) AS session_count
+      COUNT(DISTINCT \`session_id\`) AS session_count
     FROM agent_sessions_logs
     WHERE LENGTH(\`timestamp\`) >= 10
       AND SUBSTR(\`timestamp\`, 1, 10) >= ?
@@ -317,7 +317,7 @@ async function queryTokenRatioByEnv(conn, startDay, endDay) {
       COALESCE(NULLIF(TRIM(s.channel), ''), 'unknown') AS env,
       SUM(l.\`message_usage_total_tokens\`) AS total_tokens
     FROM agent_sessions_logs l
-    LEFT JOIN agent_sessions s ON s.session_id = l.\`sessionId\`
+    LEFT JOIN agent_sessions s ON s.session_id = l.\`session_id\`
     WHERE LENGTH(l.\`timestamp\`) >= 10
       AND SUBSTR(l.\`timestamp\`, 1, 10) >= ?
       AND SUBSTR(l.\`timestamp\`, 1, 10) <= ?
@@ -340,7 +340,7 @@ async function queryTokenRatioByEnv(conn, startDay, endDay) {
 async function querySessionCostRanking(conn, startDay, endDay, limit = 50) {
   const sql = `
     SELECT
-      l.\`sessionId\` AS session_id,
+      l.\`session_id\` AS session_id,
       COALESCE(NULLIF(TRIM(s.agent_name), ''), '(未知Agent)') AS agent_name,
       COALESCE(NULLIF(TRIM(l.\`message_model\`), ''), '(未知模型)') AS model,
       SUM(l.\`message_usage_total_tokens\`) AS total_tokens,
@@ -351,11 +351,11 @@ async function querySessionCostRanking(conn, startDay, endDay, limit = 50) {
       MIN(l.\`timestamp\`) AS first_time,
       MAX(l.\`timestamp\`) AS last_time
     FROM agent_sessions_logs l
-    LEFT JOIN agent_sessions s ON s.session_id = l.\`sessionId\`
+    LEFT JOIN agent_sessions s ON s.session_id = l.\`session_id\`
     WHERE LENGTH(l.\`timestamp\`) >= 10
       AND SUBSTR(l.\`timestamp\`, 1, 10) >= ?
       AND SUBSTR(l.\`timestamp\`, 1, 10) <= ?
-    GROUP BY l.\`sessionId\`, agent_name, model
+    GROUP BY l.\`session_id\`, agent_name, model
     ORDER BY total_tokens DESC
     LIMIT ?
   `;
@@ -376,7 +376,7 @@ async function queryAbnormalSessions(conn, startDay, endDay) {
     SELECT COUNT(DISTINCT session_id) AS abnormal_count
     FROM (
       SELECT
-        \`sessionId\` AS session_id,
+        \`session_id\` AS session_id,
         SUM(\`message_usage_total_tokens\`) AS total_tokens
       FROM agent_sessions_logs
       WHERE LENGTH(\`timestamp\`) >= 10
@@ -562,7 +562,7 @@ export async function queryCostOverview2Data(filters = {}) {
       else if (totalTokens > 100000) status = "over-token";
 
       return {
-        sessionId: r.session_id,
+        session_id: r.session_id,
         agentName: r.agent_name,
         model: r.model,
         tokenM: Math.round((totalTokens / 1_000_000) * 100) / 100,

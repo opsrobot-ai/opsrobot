@@ -45,11 +45,12 @@ PROPERTIES (
 -- agent_sessions_logs 表：对话日志
 CREATE TABLE IF NOT EXISTS agent_sessions_logs (
   `id` BIGINT NOT NULL AUTO_INCREMENT,
-  `sessionId` VARCHAR(128) ,
+  `session_id` VARCHAR(128) ,
   `timestamp` VARCHAR(64),
   `type` VARCHAR(64),
   `version` VARCHAR(32),
-  `parent_id` VARCHAR(128),
+  `message_id` VARCHAR(128),
+  `message_parent_id` VARCHAR(128),
   `provider` VARCHAR(128),
   `model_id` VARCHAR(128),
   `thinking_level` INT,
@@ -70,8 +71,8 @@ CREATE TABLE IF NOT EXISTS agent_sessions_logs (
   `message_usage_total_tokens` BIGINT,
   `log_attributes` variant
 ) ENGINE=OLAP
-DUPLICATE KEY(sessionId, timestamp)
-DISTRIBUTED BY HASH(sessionId) BUCKETS 10
+DUPLICATE KEY(id)
+DISTRIBUTED BY HASH(session_id) BUCKETS 10
 PROPERTIES ('replication_num' = '1');
 
 
@@ -81,7 +82,7 @@ CREATE TABLE IF NOT EXISTS `audit_logs` (
   `event_time` datetime NOT NULL COMMENT "审计时间",
   `log_attributes` variant NOT NULL COMMENT "动态审计属性"
 ) ENGINE=OLAP
-DUPLICATE KEY(`event_time`)
+DUPLICATE KEY(`id`)
 DISTRIBUTED BY HASH(`event_time`) BUCKETS 10
 PROPERTIES ('replication_num' = '1');
 
@@ -93,6 +94,6 @@ CREATE TABLE IF NOT EXISTS `gateway_logs` (
   `level` varchar(64) NOT NULL DEFAULT "" COMMENT "级别",
   `log_attributes` variant NOT NULL COMMENT "动态审计属性"
 ) ENGINE=OLAP
-DUPLICATE KEY(`event_time`)
+DUPLICATE KEY(`id`)
 DISTRIBUTED BY HASH(`event_time`) BUCKETS 10
 PROPERTIES ('replication_num' = '1');

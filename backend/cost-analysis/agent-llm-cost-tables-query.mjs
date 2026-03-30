@@ -74,7 +74,7 @@ SELECT
   SUM(CASE WHEN l.\`message_is_error\` = 0 THEN 1 ELSE 0 END) AS ok_lines,
   SUM(CASE WHEN l.\`message_is_error\` = 1 THEN 1 ELSE 0 END) AS err_lines
 FROM agent_sessions_logs l
-LEFT JOIN agent_sessions s ON s.session_id = l.\`sessionId\`
+LEFT JOIN agent_sessions s ON s.session_id = l.\`session_id\`
 WHERE LENGTH(l.\`timestamp\`) >= 10
   AND SUBSTR(l.\`timestamp\`, 1, 10) >= ?
   AND SUBSTR(l.\`timestamp\`, 1, 10) <= ?

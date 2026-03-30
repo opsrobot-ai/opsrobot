@@ -619,7 +619,7 @@ export default function LogSearch() {
                     const ts = parseTimestampMs(row.timestamp);
                     const isErr = Number(row.message_is_error) === 1;
                     const lvl = isErr ? "ERROR" : "INFO";
-                    const rid = row.id != null && String(row.id).trim() ? String(row.id) : `row-${String(row.sessionId)}-${i}`;
+                    const rid = row.id != null && String(row.id).trim() ? String(row.id) : `row-${String(row.session_id)}-${i}`;
                     return (
                       <tr
                         key={rid}
@@ -698,8 +698,8 @@ export default function LogSearch() {
                   <dd className="mt-1 break-all font-mono text-gray-900 dark:text-gray-100">{String(detail.timestamp ?? "—")}</dd>
                 </div>
                 <div>
-                  <dt className="text-xs font-medium text-gray-500 dark:text-gray-400">sessionId</dt>
-                  <dd className="mt-1 break-all font-mono text-gray-900 dark:text-gray-100">{String(detail.sessionId ?? "—")}</dd>
+                  <dt className="text-xs font-medium text-gray-500 dark:text-gray-400">session_id</dt>
+                  <dd className="mt-1 break-all font-mono text-gray-900 dark:text-gray-100">{String(detail.session_id ?? "—")}</dd>
                 </div>
                 <div>
                   <dt className="text-xs font-medium text-gray-500 dark:text-gray-400">消息类型</dt>

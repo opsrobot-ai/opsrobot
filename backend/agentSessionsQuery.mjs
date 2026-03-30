@@ -62,10 +62,10 @@ async function fetchLogsGroupedBySession(conn, sessionIds) {
     const chunk = ids.slice(i, i + LOG_SESSIONS_CHUNK);
     if (chunk.length === 0) continue;
     const ph = chunk.map(() => "?").join(",");
-    const sql = `SELECT * FROM agent_sessions_logs WHERE \`sessionId\` IN (${ph}) ORDER BY \`sessionId\`, \`timestamp\` ASC`;
+    const sql = `SELECT * FROM agent_sessions_logs WHERE \`session_id\` IN (${ph}) ORDER BY \`session_id\`, \`timestamp\` ASC`;
     const [rows] = await conn.query(sql, chunk);
     for (const r of rows) {
-      const sid = r.sessionId ?? r.session_id;
+      const sid = r.session_id;
       if (sid == null || sid === "") continue;
       const k = String(sid);
       if (!bySession.has(k)) bySession.set(k, []);
@@ -128,7 +128,7 @@ export async function queryAgentSessionsRawWithLogTokens() {
 const LOGS_BY_SESSION_SQL = `
 SELECT *
 FROM agent_sessions_logs
-WHERE \`sessionId\` = ?
+WHERE \`session_id\` = ?
 ORDER BY \`timestamp\` ASC
 `;
 

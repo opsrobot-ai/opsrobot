@@ -304,7 +304,7 @@ function ChatAssistantMessageBody({ msg, strArgs }) {
 }
 
 /**
- * 单会话下钻：索引元数据 + 拉取 `public/sessions/{sessionId}.jsonl` 时间线
+ * 单会话下钻：索引元数据 + 拉取 `public/sessions/{session_id}.jsonl` 时间线
  */
 function SessionAuditDetail({ row, onBack }) {
   const [jsonlLines, setJsonlLines] = useState([]);
@@ -328,10 +328,10 @@ function SessionAuditDetail({ row, onBack }) {
   const modelInvocations = useMemo(() => extractModelInvocationRecords(jsonlLines), [jsonlLines]);
 
   useEffect(() => {
-    const sid = row.sessionId;
+    const sid = row.session_id;
     if (!sid) {
       setJsonlStatus("error");
-      setJsonlError("该记录缺少 sessionId，无法加载会话转写。");
+      setJsonlError("该记录缺少 session_id，无法加载会话转写。");
       setJsonlLines([]);
       return;
     }
@@ -365,7 +365,7 @@ function SessionAuditDetail({ row, onBack }) {
           setJsonlLines([]);
           setJsonlStatus("error");
           setJsonlError(
-            `无法加载会话转写：${e.message || e}。请确认 Doris 表 otel.agent_sessions_logs 含 sessionId=${sid}，或放置 public/sessions/${sid}.jsonl。`,
+            `无法加载会话转写：${e.message || e}。请确认 Doris 表 otel.agent_sessions_logs 含 session_id=${sid}，或放置 public/sessions/${sid}.jsonl。`,
           );
         }
       }
@@ -374,7 +374,7 @@ function SessionAuditDetail({ row, onBack }) {
     return () => {
       cancelled = true;
     };
-  }, [row.sessionId]);
+  }, [row.session_id]);
 
   useEffect(() => {
     setRawOpen(new Set());
@@ -382,7 +382,7 @@ function SessionAuditDetail({ row, onBack }) {
 
   useEffect(() => {
     setDetailTab("trace");
-  }, [row.sessionId]);
+  }, [row.session_id]);
 
   useEffect(() => {
     setReplayPlaying(false);
@@ -467,13 +467,13 @@ function SessionAuditDetail({ row, onBack }) {
           <div>
             <dt className="text-xs font-medium text-gray-500 dark:text-gray-400">会话 ID</dt>
             <dd className="mt-0.5 flex items-start gap-1.5">
-              <span className="break-all font-mono text-xs font-semibold text-violet-700 dark:text-violet-300">{row.sessionId ?? "—"}</span>
-              {row.sessionId && (
+              <span className="break-all font-mono text-xs font-semibold text-violet-700 dark:text-violet-300">{row.session_id ?? "—"}</span>
+              {row.session_id && (
                 <button
                   type="button"
                   title="复制会话 ID"
                   onClick={() => {
-                    navigator.clipboard?.writeText(row.sessionId).then(() => {
+                    navigator.clipboard?.writeText(row.session_id).then(() => {
                       setIdCopied(true);
                       setTimeout(() => setIdCopied(false), 1500);
                     }).catch(() => {});
@@ -548,7 +548,7 @@ function SessionAuditDetail({ row, onBack }) {
             溯源按时间先后；会话过程按记录行序；对话详情为聊天视图；意图识别为用户与 thinking 推理；模型调用汇总各轮用量；工具与网络/文件为结构化汇总；风险感知为启发式审计项。转写数据优先来自 Doris{" "}
             <code className="rounded bg-gray-100 px-1 font-mono text-[11px] dark:bg-gray-800">otel.agent_sessions_logs</code>
             （列 <code className="rounded bg-gray-100 px-1 font-mono text-[11px] dark:bg-gray-800">log_attributes</code>
-            存完整 JSONL 行）；失败时可回退 <code className="rounded bg-gray-100 px-1 font-mono text-[11px] dark:bg-gray-800">public/sessions/{`{sessionId}`}.jsonl</code>。
+            存完整 JSONL 行）；失败时可回退 <code className="rounded bg-gray-100 px-1 font-mono text-[11px] dark:bg-gray-800">public/sessions/{`{session_id}`}.jsonl</code>。
           </p>
         </div>
 
@@ -1401,9 +1401,9 @@ function SessionAuditDetail({ row, onBack }) {
                           <span className="rounded-md bg-primary-soft px-1.5 py-0.5 font-semibold text-primary ring-1 ring-primary/15">
                             {po.action}
                           </span>
-                          {po.sessionId != null && (
+                          {po.session_id != null && (
                             <span className="ml-2 inline-flex rounded-md bg-emerald-50 px-1.5 py-0.5 font-medium text-emerald-900 ring-1 ring-emerald-200/80">
-                              sessionId {po.sessionId}
+                              sessionId {po.session_id}
                             </span>
                           )}
                         </li>
@@ -1552,7 +1552,7 @@ export default function SessionAudit() {
     return rows.filter((r) => {
       const hay = [
         r.sessionKey,
-        r.sessionId,
+        r.session_id,
         r.agentName,
         r.model,
         r.modelProvider,
@@ -1679,8 +1679,8 @@ export default function SessionAudit() {
             <table className="w-full min-w-[1880px] border-collapse text-left text-sm">
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50/80 text-xs font-medium text-gray-500 dark:border-gray-800 dark:bg-gray-800/80 dark:text-gray-400">
-                  <th className="cursor-pointer whitespace-nowrap px-3 py-3" onClick={() => toggleSort("sessionId")}>
-                    会话 ID {sortKey === "sessionId" ? (sortDir === "asc" ? "↑" : "↓") : ""}
+                  <th className="cursor-pointer whitespace-nowrap px-3 py-3" onClick={() => toggleSort("session_id")}>
+                    会话 ID {sortKey === "session_id" ? (sortDir === "asc" ? "↑" : "↓") : ""}
                   </th>
                   <th className="cursor-pointer whitespace-nowrap px-3 py-3" onClick={() => toggleSort("agentName")}>
                     Agent 名称 {sortKey === "agentName" ? (sortDir === "asc" ? "↑" : "↓") : ""}
@@ -1758,7 +1758,7 @@ export default function SessionAudit() {
                           }
                         }}
                       >
-                        <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-gray-800 dark:text-gray-200">{row.sessionId ?? "—"}</td>
+                        <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-gray-800 dark:text-gray-200">{row.session_id ?? "—"}</td>
                         <td className="max-w-[8rem] truncate px-3 py-2 text-gray-800 dark:text-gray-200" title={row.agentName || ""}>
                           {row.agentName ?? "—"}
                         </td>
