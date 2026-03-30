@@ -143,7 +143,7 @@ export async function queryAgentSessionsLogsSearch(p) {
           COALESCE(l.\`message_model\`,''),
           COALESCE(l.\`message_role\`,''),
           COALESCE(l.\`message_tool_name\`,''),
-          COALESCE(l.\`sessionId\`,''),
+          COALESCE(l.\`session_id\`,''),
           COALESCE(l.\`message_id\`,''),
           COALESCE(l.\`message_parent_id\`,''),
           COALESCE(s.\`agent_name\`,'')
@@ -157,7 +157,7 @@ export async function queryAgentSessionsLogsSearch(p) {
 
   const baseFrom = `
 FROM \`${logTable.replace(/`/g, "")}\` l
-LEFT JOIN agent_sessions s ON s.session_id = l.\`sessionId\`
+LEFT JOIN agent_sessions s ON s.session_id = l.\`session_id\`
 WHERE ${whereSql}
 `;
 
@@ -174,7 +174,7 @@ WHERE ${whereSql}
     const listSql = `
 SELECT
   l.\`message_id\`,
-  l.\`sessionId\`,
+  l.\`session_id\`,
   l.\`timestamp\`,
   l.\`type\`,
   l.\`version\`,

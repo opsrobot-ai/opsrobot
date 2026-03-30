@@ -92,7 +92,7 @@ SELECT
   COALESCE(NULLIF(TRIM(s.agent_name), ''), '(未命名 Agent)') AS name,
   COALESCE(SUM(l.\`message_usage_total_tokens\`), 0) AS tokens
 FROM agent_sessions_logs l
-LEFT JOIN agent_sessions s ON s.session_id = l.\`sessionId\`
+LEFT JOIN agent_sessions s ON s.session_id = l.\`session_id\`
 WHERE LENGTH(l.\`timestamp\`) >= 10
   AND SUBSTR(l.\`timestamp\`, 1, 10) >= ?
   AND SUBSTR(l.\`timestamp\`, 1, 10) <= ?
@@ -120,7 +120,7 @@ SELECT
     ELSE 0
   END AS avg_tokens_per_call
 FROM agent_sessions_logs l
-LEFT JOIN agent_sessions s ON s.session_id = l.\`sessionId\`
+LEFT JOIN agent_sessions s ON s.session_id = l.\`session_id\`
 WHERE LENGTH(l.\`timestamp\`) >= 10
   AND SUBSTR(l.\`timestamp\`, 1, 10) >= ?
   AND SUBSTR(l.\`timestamp\`, 1, 10) <= ?
@@ -146,7 +146,7 @@ SELECT
   COALESCE(NULLIF(TRIM(s.agent_name), ''), '(未命名 Agent)') AS agent_name,
   COALESCE(SUM(l.\`message_usage_total_tokens\`), 0) AS tokens
 FROM agent_sessions_logs l
-LEFT JOIN agent_sessions s ON s.session_id = l.\`sessionId\`
+LEFT JOIN agent_sessions s ON s.session_id = l.\`session_id\`
 WHERE LENGTH(l.\`timestamp\`) >= 10
   AND SUBSTR(l.\`timestamp\`, 1, 10) >= ?
   AND SUBSTR(l.\`timestamp\`, 1, 10) <= ?
@@ -194,7 +194,7 @@ ORDER BY total_tokens DESC
 async function topSessionsByTokens(conn, startDay, endDay, limit = 10) {
   const sql = `
 SELECT
-  l.\`sessionId\` AS session_id,
+  l.\`session_id\` AS session_id,
   COALESCE(NULLIF(TRIM(s.agent_name), ''), '(未命名 Agent)') AS agent_name,
   COALESCE(SUM(l.\`message_usage_total_tokens\`), 0) AS total_tokens,
   COALESCE(SUM(l.\`message_usage_input\`), 0) AS input_tokens,
@@ -202,11 +202,11 @@ SELECT
   COUNT(*) AS log_lines,
   MIN(l.\`timestamp\`) AS first_time
 FROM agent_sessions_logs l
-LEFT JOIN agent_sessions s ON s.session_id = l.\`sessionId\`
+LEFT JOIN agent_sessions s ON s.session_id = l.\`session_id\`
 WHERE LENGTH(l.\`timestamp\`) >= 10
   AND SUBSTR(l.\`timestamp\`, 1, 10) >= ?
   AND SUBSTR(l.\`timestamp\`, 1, 10) <= ?
-GROUP BY l.\`sessionId\`, agent_name
+GROUP BY l.\`session_id\`, agent_name
 ORDER BY total_tokens DESC
 LIMIT ?
 `;
@@ -412,7 +412,7 @@ export async function queryCostOverviewSnapshot(opts = {}) {
       const outT = Number(r.output_tokens) || 0;
       const io = inp + outT;
       return {
-        sessionId: String(r.session_id || "").slice(0, 16),
+        session_id: String(r.session_id || "").slice(0, 16),
         agentName: String(r.agent_name),
         tokens: Math.round((total / 1_000_000) * 1000) / 1000,
         inputTokens: Math.round((inp / 1_000_000) * 1000) / 1000,

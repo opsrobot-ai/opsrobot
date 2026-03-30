@@ -133,11 +133,11 @@ FROM agent_sessions_logs
 `;
 
 const RISK_SESSION_COUNT_SQL = `
-SELECT COUNT(DISTINCT l.\`sessionId\`) AS cnt
+SELECT COUNT(DISTINCT l.\`session_id\`) AS cnt
 FROM agent_sessions_logs l
 WHERE EXISTS (
   SELECT 1 FROM agent_sessions s
-  WHERE s.session_id = l.\`sessionId\`
+  WHERE s.session_id = l.\`session_id\`
   AND s.started_at >= ? AND s.started_at < ?
 )
 AND (
@@ -282,7 +282,7 @@ FROM (
   FROM agent_sessions_logs l
   WHERE EXISTS (
     SELECT 1 FROM agent_sessions s
-    WHERE s.session_id = l.\`sessionId\`
+    WHERE s.session_id = l.\`session_id\`
     AND s.started_at >= ? AND s.started_at < ?
   )
   AND (
@@ -323,7 +323,7 @@ FROM (
   FROM agent_sessions_logs l
   WHERE EXISTS (
     SELECT 1 FROM agent_sessions s
-    WHERE s.session_id = l.\`sessionId\`
+    WHERE s.session_id = l.\`session_id\`
     AND s.started_at >= ? AND s.started_at < ?
   )
   AND (

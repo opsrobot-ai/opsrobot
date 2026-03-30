@@ -92,7 +92,7 @@ transforms:
       }
       . = result
 
-  #采集 JSONL 会话日志文件，从文件路径提取 sessionId，提取解析所有需要的嵌套字段
+  #采集 JSONL 会话日志文件，从文件路径提取 session_id，提取解析所有需要的嵌套字段
   session_logs_transform:
     type: remap
     inputs:
@@ -100,7 +100,7 @@ transforms:
     drop_on_error: false
     drop_on_abort: false
     source: |
-      # 从文件路径中提取文件名作为 sessionId（去掉 .jsonl 后缀）
+      # 从文件路径中提取文件名作为 session_id（去掉 .jsonl 后缀）
       filepath = string(.file) ?? ""
       parts = split(filepath, "/")
       filename = string(get!(parts, [length(parts) - 1])) ?? ""
@@ -139,7 +139,7 @@ transforms:
       .message_usage_total_tokens = get(obj, ["message", "usage", "totalTokens"]) ?? 0
 
       # 设置主键与变体记录
-      .sessionId = session_id_val
+      .session_id = session_id_val
       .log_attributes = obj
 
       # 清理无用字段以免写入无效列

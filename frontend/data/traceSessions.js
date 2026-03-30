@@ -5,7 +5,7 @@
 
 export const TRACE_SESSION_SAMPLES = [
   {
-    sessionId: "sess_a1b2c3d4e5f67890",
+    session_id: "sess_a1b2c3d4e5f67890",
     title: "客服工单查询（含工具调用）",
     channel: "web",
     user: "zhangsan@corp.example",
@@ -116,7 +116,7 @@ export const TRACE_SESSION_SAMPLES = [
     ],
   },
   {
-    sessionId: "sess_f9e8d7c6b5a49382",
+    session_id: "sess_f9e8d7c6b5a49382",
     title: "运维巡检 · 指标异常排查",
     channel: "internal",
     user: "bot-runner@infra",
@@ -190,7 +190,7 @@ export const TRACE_SESSION_SAMPLES = [
     ],
   },
   {
-    sessionId: "sess_1122334455667788",
+    session_id: "sess_1122334455667788",
     title: "数据分析 · NL2SQL（部分失败重试）",
     channel: "api",
     user: "api-key-***7abf",
@@ -274,9 +274,9 @@ export function findTraceSessionByQuery(q) {
   return (
     TRACE_SESSION_SAMPLES.find(
       (sess) =>
-        sess.sessionId.toLowerCase() === s ||
-        sess.sessionId.toLowerCase().startsWith(s) ||
-        s.length >= 8 && sess.sessionId.toLowerCase().includes(s)
+        sess.session_id.toLowerCase() === s ||
+        sess.session_id.toLowerCase().startsWith(s) ||
+        s.length >= 8 && sess.session_id.toLowerCase().includes(s)
     ) ?? null
   );
 }
