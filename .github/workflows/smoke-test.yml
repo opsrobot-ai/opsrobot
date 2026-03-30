@@ -73,12 +73,12 @@ jobs:
           --agent webtest-agent \
           --message "对http：127.0.0.1:3000进行全面测试，结果写回到https://github.com/opsrobot-observability/openclaw-observability-platform 当前的pullrequest"
 
-    - name: Upload test results
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: smoke-test-results
-        path: ./test-results/
+    # - name: Upload test results
+    #   if: always()
+    #   uses: actions/upload-artifact@v4
+    #   with:
+    #     name: smoke-test-results
+    #     path: ./test-results/
 
     - name: Show logs on failure
       if: failure()
