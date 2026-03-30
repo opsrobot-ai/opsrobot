@@ -64,7 +64,7 @@ export default function FullChainTraceability() {
     setExpandedId(null);
   }, [input]);
 
-  const exampleIds = useMemo(() => TRACE_SESSION_SAMPLES.map((s) => s.sessionId), []);
+  const exampleIds = useMemo(() => TRACE_SESSION_SAMPLES.map((s) => s.session_id), []);
 
   return (
     <div className="space-y-6">
@@ -129,7 +129,7 @@ export default function FullChainTraceability() {
                   <h3 className="text-lg font-semibold text-gray-900">{session.title}</h3>
                   {outcomeBadge(session.outcome)}
                 </div>
-                <p className="font-mono text-xs text-gray-500 break-all">会话 ID：{session.sessionId}</p>
+                <p className="font-mono text-xs text-gray-500 break-all">会话 ID：{session.session_id}</p>
                 <p className="text-sm text-gray-600">
                   数字员工：<span className="font-medium text-gray-800">{session.agentName}</span>
                   <span className="mx-2 text-gray-300">·</span>

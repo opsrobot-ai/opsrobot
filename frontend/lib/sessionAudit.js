@@ -53,7 +53,7 @@ export function sortSessionRows(rows, sortKey, sortDir) {
 }
 
 export function sessionRowId(row) {
-  return row.sessionKey || row.sessionId || "";
+  return row.sessionKey || row.session_id || "";
 }
 
 /**
@@ -169,7 +169,7 @@ export function mapAgentSessionRow(raw) {
   return {
     ...n,
     sessionKey: raw.session_key != null ? String(raw.session_key) : pickStr(n, ["sessionKey"]) ?? "",
-    sessionId: raw.session_id != null ? String(raw.session_id) : pickStr(n, ["sessionId"]) ?? null,
+    session_id: raw.session_id != null ? String(raw.session_id) : pickStr(n, ["session_id"]) ?? null,
     updatedAt: updatedAt ?? null,
     startedAt: startedAt ?? null,
     endedAt: endedAt ?? null,
@@ -811,7 +811,7 @@ export function extractNetworkAndFileOps(lines) {
         if (name === "process") {
           processOps.push({
             action: args.action != null ? String(args.action) : "—",
-            sessionId: args.sessionId != null ? String(args.sessionId) : null,
+            session_id: args.session_id != null ? String(args.session_id) : null,
             tMs,
             lineIndex: i,
           });

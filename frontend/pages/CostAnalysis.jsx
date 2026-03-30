@@ -596,7 +596,7 @@ export default function CostAnalysis() {
                   />
                   <YAxis
                     type="category"
-                    dataKey="sessionId"
+                    dataKey="session_id"
                     width={120}
                     tick={{ fontSize: 10, fill: "#6b7280" }}
                     tickFormatter={(v) =>
@@ -607,11 +607,11 @@ export default function CostAnalysis() {
                     formatter={(v) => [`${v}M Tokens`, "总消耗"]}
                     contentStyle={{ borderRadius: 8, fontSize: 12 }}
                     labelFormatter={(label) => {
-                      const s = topSessions.find((x) => x.sessionId === label);
+                      const s = topSessions.find((x) => x.session_id === label);
                       if (!s) return label;
                       return (
                         <div className="space-y-1 text-left">
-                          <div className="font-mono text-[11px]">{s.sessionId}</div>
+                          <div className="font-mono text-[11px]">{s.session_id}</div>
                           <div className="text-[10px] text-gray-500">{s.agentName}</div>
                           {s.userName && (
                             <div className="text-[10px] text-gray-500">用户：{s.userName}</div>
