@@ -415,7 +415,7 @@ export default function CostOverview2() {
               <table className="w-full min-w-[900px] border-collapse text-left text-sm">
                 <thead>
                   <tr className="border-b border-gray-100 bg-gray-50/90 dark:border-gray-800 dark:bg-gray-900/50">
-                    <SortableTableTh label="会话 ID" columnKey="sessionId" sortKey={sortKey} sortOrder={sortOrder} onSort={handleSort} className="w-[160px]" />
+                    <SortableTableTh label="会话 ID" columnKey="session_id" sortKey={sortKey} sortOrder={sortOrder} onSort={handleSort} className="w-[160px]" />
                     <SortableTableTh label="Agent" columnKey="agentName" sortKey={sortKey} sortOrder={sortOrder} onSort={handleSort} className="w-[120px]" />
                     <SortableTableTh label="用户" columnKey="userName" sortKey={sortKey} sortOrder={sortOrder} onSort={handleSort} className="w-[100px]" />
                     <SortableTableTh label="Gateway" columnKey="gateway" sortKey={sortKey} sortOrder={sortOrder} onSort={handleSort} className="w-[100px]" />
@@ -443,13 +443,13 @@ export default function CostOverview2() {
                   ) : (
                     rows.map((row, i) => (
                       <tr
-                        key={row.sessionId}
+                        key={row.session_id}
                         className={[
                           "transition-colors hover:bg-primary-soft/30 dark:hover:bg-primary/10",
                           i % 2 === 1 ? "bg-gray-50/50 dark:bg-gray-800/30" : "",
                         ].join(" ")}
                       >
-                        <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-primary">{row.sessionId}</td>
+                        <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-primary">{row.session_id}</td>
                         <td className="whitespace-nowrap px-4 py-3 text-gray-700 dark:text-gray-200">{row.agentName || "—"}</td>
                         <td className="whitespace-nowrap px-4 py-3 text-gray-600 dark:text-gray-300">{row.userName || "—"}</td>
                         <td className="whitespace-nowrap px-4 py-3 text-gray-600 dark:text-gray-300">{row.gateway || "—"}</td>

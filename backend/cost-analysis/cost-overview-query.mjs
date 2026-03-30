@@ -120,7 +120,7 @@ SELECT
     ELSE 0
   END AS avg_tokens_per_call
 FROM agent_sessions_logs l
-LEFT JOIN agent_sessions s ON s.session_id = l.\`sessionId\`
+LEFT JOIN agent_sessions s ON s.session_id = l.\`session_id\`
 WHERE LENGTH(l.\`timestamp\`) >= 10
   AND SUBSTR(l.\`timestamp\`, 1, 10) >= ?
   AND SUBSTR(l.\`timestamp\`, 1, 10) <= ?

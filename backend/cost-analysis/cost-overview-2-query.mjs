@@ -107,7 +107,7 @@ function buildWhere(startDay, endDay, filters) {
 function validSortKey(k) {
   const key = String(k ?? "").trim();
   const allowed = [
-    "sessionId", "agentName", "userName", "gateway", "model",
+    "session_id", "agentName", "userName", "gateway", "model",
     "totalTokens", "inputTokens", "outputTokens", "costYuan", "createTime",
   ];
   return allowed.includes(key) ? key : "totalTokens";
@@ -118,7 +118,7 @@ function validSortKey(k) {
  */
 function sortKeyToOrderExpr(k) {
   const m = {
-    sessionId: "l.`sessionId`",
+    session_id: "l.`session_id`",
     agentName: "COALESCE(NULLIF(TRIM(s.agent_name), ''), '(未命名)')",
     userName: "COALESCE(NULLIF(TRIM(s.display_name), ''), '(未知用户)')",
     gateway: "COALESCE(NULLIF(TRIM(s.channel), ''), '(未知)')",
@@ -151,10 +151,10 @@ export async function querySessionCostDetail({
     const whereClause = conditions.join("\n      AND ");
 
     const [countResult, rowsResult] = await Promise.all([
-      conn.query(`SELECT COUNT(DISTINCT l.\`sessionId\`) AS total FROM agent_sessions_logs l LEFT JOIN agent_sessions s ON s.session_id = l.\`sessionId\` WHERE ${whereClause}`, params),
+      conn.query(`SELECT COUNT(DISTINCT l.\`session_id\`) AS total FROM agent_sessions_logs l LEFT JOIN agent_sessions s ON s.session_id = l.\`session_id\` WHERE ${whereClause}`, params),
       conn.query(`
 SELECT
-  l.\`sessionId\` AS session_id,
+  l.\`session_id\` AS session_id,
   COALESCE(NULLIF(TRIM(s.agent_name), ''), '(未命名)') AS agent_name,
   COALESCE(NULLIF(TRIM(s.display_name), ''), '(未知用户)') AS user_name,
   COALESCE(NULLIF(TRIM(s.channel), ''), '(未知)') AS gateway,
@@ -164,9 +164,9 @@ SELECT
   COALESCE(SUM(l.\`message_usage_output\`), 0) AS output_tokens,
   MIN(l.\`timestamp\`) AS create_time
 FROM agent_sessions_logs l
-LEFT JOIN agent_sessions s ON s.session_id = l.\`sessionId\`
+LEFT JOIN agent_sessions s ON s.session_id = l.\`session_id\`
 WHERE ${whereClause}
-GROUP BY l.\`sessionId\`, agent_name, user_name, gateway, model
+GROUP BY l.\`session_id\`, agent_name, user_name, gateway, model
 ORDER BY ${orderExpr} ${safeOrder}
 LIMIT ? OFFSET ?
 `, [...params, Number(pageSize), offset]),
@@ -181,7 +181,7 @@ LIMIT ? OFFSET ?
       const outputTokens = Number(r.output_tokens) || 0;
       const costYuan = Math.round((totalTokens / 1_000_000) * COST_YUAN_PER_M_TOKEN * 10000) / 10000;
       return {
-        sessionId: String(r.session_id || ""),
+        session_id: String(r.session_id || ""),
         agentName: r.agent_name,
         userName: r.user_name,
         gateway: r.gateway,
@@ -210,7 +210,7 @@ export async function querySessionCostOptions({ startDay, endDay } = {}) {
     const e = endDay || defEnd;
 
     const tsCond = "LENGTH(l.`timestamp`) >= 10 AND SUBSTR(l.`timestamp`, 1, 10) >= ? AND SUBSTR(l.`timestamp`, 1, 10) <= ?";
-    const sqlBase = `FROM agent_sessions_logs l LEFT JOIN agent_sessions s ON s.session_id = l.\`sessionId\` WHERE ${tsCond}`;
+    const sqlBase = `FROM agent_sessions_logs l LEFT JOIN agent_sessions s ON s.session_id = l.\`session_id\` WHERE ${tsCond}`;
 
     const [[agentsRows], [usersRows], [gatewayRows], [modelRows]] = await Promise.all([
       conn.query(`SELECT DISTINCT COALESCE(NULLIF(TRIM(s.agent_name), ''), '(未命名)') AS v ${sqlBase} ORDER BY v LIMIT 100`, [s, e]),

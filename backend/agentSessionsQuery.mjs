@@ -6,7 +6,7 @@ import { computeSessionAggregatesFromLogRows } from "../frontend/lib/sessionAudi
 
 export function getDorisConfig() {
   return {
-    host: process.env.DORIS_HOST ?? "192.168.64.107",
+    host: process.env.DORIS_HOST ?? "doris",
     port: Number(process.env.DORIS_PORT ?? 9030),
     user: process.env.DORIS_USER ?? "root",
     password: process.env.DORIS_PASSWORD ?? "",
