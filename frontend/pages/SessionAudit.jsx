@@ -1388,7 +1388,7 @@ function SessionAuditDetail({ row }) {
   );
 }
 
-export default function SessionAudit() {
+export default function SessionAudit({ setHeaderExtra }) {
   const [rows, setRows] = useState([]);
   const [loadError, setLoadError] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -1399,6 +1399,29 @@ export default function SessionAudit() {
   const [pageSize, setPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
   const [query, setQuery] = useState("");
   const [detailRow, setDetailRow] = useState(null);
+
+  useEffect(() => {
+    if (detailRow) {
+      setHeaderExtra(
+        <div className="flex items-center gap-1.5 text-sm">
+          <button
+            type="button"
+            onClick={() => setDetailRow(null)}
+            className="rounded-md px-1.5 py-1 text-gray-500 transition-colors hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
+          >
+            会话链路溯源
+          </button>
+          <span className="text-gray-400">/</span>
+          <span className="font-mono text-[13px] font-semibold text-violet-700 dark:text-violet-300">
+            {detailRow.session_id}
+          </span>
+          <span className="ml-1 text-xs text-gray-400 font-medium font-sans">详情查看</span>
+        </div>
+      );
+    } else {
+      setHeaderExtra(null);
+    }
+  }, [detailRow, setHeaderExtra]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1524,7 +1547,7 @@ export default function SessionAudit() {
       )}
 
       <section className="app-card p-4 sm:p-6">
-        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
           <div>
             <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">会话列表</h2>
           </div>
@@ -1543,31 +1566,6 @@ export default function SessionAudit() {
           </div>
         </div>
 
-        <TablePagination
-          page={pageSafe}
-          pageSize={pageSize}
-          total={sorted.length}
-          onPageChange={setPage}
-          className="mt-4"
-          loading={loading}
-          trailingControls={
-            <label className="ml-1 flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-400">
-              <span className="shrink-0">每页</span>
-              <select
-                value={pageSize}
-                onChange={(e) => setPageSize(Number(e.target.value))}
-                className="app-input min-w-[4.5rem] py-1.5 px-2"
-              >
-                {[10, 20, 50, 100].map((n) => (
-                  <option key={n} value={n}>
-                    {n}
-                  </option>
-                ))}
-              </select>
-              <span className="shrink-0">条</span>
-            </label>
-          }
-        />
 
         <div className="mt-4 overflow-hidden rounded-lg border border-gray-100 dark:border-gray-800">
           <div className="overflow-x-auto">
@@ -1705,6 +1703,32 @@ export default function SessionAudit() {
             </table>
           </div>
         </div>
+
+        <TablePagination
+          page={pageSafe}
+          pageSize={pageSize}
+          total={sorted.length}
+          onPageChange={setPage}
+          className="mt-6"
+          loading={loading}
+          trailingControls={
+            <label className="ml-1 flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-400">
+              <span className="shrink-0">每页</span>
+              <select
+                value={pageSize}
+                onChange={(e) => setPageSize(Number(e.target.value))}
+                className="app-input min-w-[4.5rem] py-1.5 px-2"
+              >
+                {[10, 20, 50, 100].map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+              <span className="shrink-0">条</span>
+            </label>
+          }
+        />
       </section>
     </div>
   );

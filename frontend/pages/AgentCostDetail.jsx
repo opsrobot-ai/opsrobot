@@ -11,9 +11,10 @@ import SortableTableTh from "../components/SortableTableTh.jsx";
 import TablePagination, { DEFAULT_TABLE_PAGE_SIZE } from "../components/TablePagination.jsx";
 
 export default function AgentCostDetail() {
-  const def = useMemo(() => defaultRangeLastDays(30), []);
-  const [rangeStart, setRangeStart] = useState(def.start);
-  const [rangeEnd, setRangeEnd] = useState(def.end);
+  const [activeDays, setActiveDays] = useState(30);
+  const rangeObj = useMemo(() => defaultRangeLastDays(activeDays), [activeDays]);
+  const rangeStart = rangeObj.start;
+  const rangeEnd = rangeObj.end;
   const [drillRow, setDrillRow] = useState(null);
   const [sortKey, setSortKey] = useState(null);
   const [sortOrder, setSortOrder] = useState("asc");
@@ -167,16 +168,14 @@ export default function AgentCostDetail() {
       ) : null}
 
       <CostTimeRangeFilter
-        rangeStart={rangeStart}
-        rangeEnd={rangeEnd}
-        onChangeStart={setRangeStart}
-        onChangeEnd={setRangeEnd}
+        activeDays={activeDays}
+        onPreset={setActiveDays}
       />
 
       <section className="app-card p-4 sm:p-6">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">Agent 成本明细</h2>
+            <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">实例成本明细</h2>
           </div>
           <button
             type="button"
@@ -188,22 +187,7 @@ export default function AgentCostDetail() {
           </button>
         </div>
         {loading ? <LoadingSpinner message="加载中…" /> : null}
-        {rangeValid && totalRows > 0 && !loading ? (
-          <TablePagination
-            className="mt-6"
-            page={safePage}
-            pageSize={pageSize}
-            total={totalRows}
-            onPageChange={setPage}
-          />
-        ) : null}
-        <div
-          className={
-            rangeValid && totalRows > 0 && !loading
-              ? "mt-3 overflow-hidden rounded-lg border border-gray-100 dark:border-gray-800"
-              : "mt-6 overflow-hidden rounded-lg border border-gray-100 dark:border-gray-800"
-          }
-        >
+        <div className="mt-6 overflow-hidden rounded-lg border border-gray-100 dark:border-gray-800">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[960px] border-collapse text-left text-sm">
               <thead>
@@ -272,7 +256,15 @@ export default function AgentCostDetail() {
             </table>
           </div>
         </div>
-        <p className="mt-4 text-xs text-gray-400 dark:text-gray-500">数据来自 Doris · otel 库</p>
+        {rangeValid && totalRows > 0 && !loading ? (
+          <TablePagination
+            className="mt-6"
+            page={safePage}
+            pageSize={pageSize}
+            total={totalRows}
+            onPageChange={setPage}
+          />
+        ) : null}
       </section>
 
       {drillRow && (

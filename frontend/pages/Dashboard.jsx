@@ -1,5 +1,6 @@
 import { createPortal } from "react-dom";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import Icon from "../components/Icon.jsx";
 import ThemeToggle from "../components/ThemeToggle.jsx";
 import DigitalEmployeeOverview from "./DigitalEmployeeOverview.jsx";
 import DigitalEmployeePortrait from "./DigitalEmployeePortrait.jsx";
@@ -19,55 +20,49 @@ const PAGE_META = {
   monitoring: { title: "基础监控", subtitle: "系统与资源监控" },
   alerts: { title: "告警事件", subtitle: "告警与事件处理" },
   audit: { title: "行为审计", subtitle: "用户与系统行为审计与合规记录" },
-  "config-change": { title: "配置变更", subtitle: "关键配置项变更历史与合规留痕" },
+  "config-change": { title: "实例配置变更", subtitle: "关键配置项变更历史与合规留痕" },
   "audit-overview": {
-    title: "审计概览",
+    title: "行为审计概览",
     subtitle: "核心指标、风险统计、实时态势、趋势与排行",
   },
-  "session-audit": { title: "会话溯源", subtitle: "OpenClaw 会话索引、模型与 Token 用量合规留痕" },
+  "session-audit": { title: "会话链路溯源", subtitle: "OpenClaw 会话索引、模型与 Token 用量合规留痕" },
   traceability: { title: "全链路溯源", subtitle: "按会话 ID 查看链路时间轴与步骤详情" },
   inspection: { title: "定期巡检", subtitle: "巡检任务与报告" },
-  "cost-overview": { title: "成本概览", subtitle: "总成本、日均与维度占比、趋势" },
+  "cost-overview": { title: "算力成本概览", subtitle: "总成本、日均与维度占比、趋势" },
   "cost-overview-2": { title: "会话成本明细", subtitle: "Agent、用户、Gateway、大模型多维过滤" },
-  "agent-cost-detail": { title: "Agent 成本明细", subtitle: "总消耗、单任务均值、调用量与成功率" },
-  "llm-cost": { title: "LLM 成本明细", subtitle: "按模型维度的 Token 与费用" },
+  "agent-cost-detail": { title: "实例成本明细", subtitle: "总消耗、单任务均值、调用量与成功率" },
+  "llm-cost": { title: "模型成本明细", subtitle: "按模型维度的 Token 与费用" },
 };
 
 const NAV = [
-  // { id: "panorama", label: "全景概览", icon: "panorama" },
-  // {
-  //   id: "digital-employee",
-  //   label: "数字员工",
-  //   icon: "digitalEmployee",
-  //   children: [
-  //     { id: "digital-employee-overview", label: "员工概览" },
-  //     { id: "digital-employee-list", label: "员工列表" },
-  //   ],
-  // },
-  // { id: "monitoring", label: "基础监控", icon: "monitoring" },
-  // { id: "alerts", label: "告警事件", icon: "alerts" },
+  {
+    id: "full-time-monitoring",
+    label: "全天候观测",
+    icon: "clock",
+    children: [
+      { id: "config-change", label: "实例配置变更" },
+    ],
+  },
   {
     id: "security-audit",
-    label: "安全审计",
+    label: "风险感知",
     icon: "audit",
     children: [
-      { id: "audit-overview", label: "审计概览" },
+      { id: "audit-overview", label: "行为审计概览" },
       // { id: "audit", label: "行为审计" },
-      { id: "config-change", label: "配置变更" },
-      { id: "session-audit", label: "会话溯源" },
-      // { id: "traceability", label: "全链路溯源" },
+      { id: "session-audit", label: "会话链路溯源" },
     ],
   },
   // { id: "inspection", label: "定期巡检", icon: "inspection" },
   {
     id: "cost-analysis",
-    label: "成本分析",
+    label: "生产力评估",
     icon: "costAnalysis",
     children: [
-      { id: "cost-overview", label: "成本概览" },
+      { id: "cost-overview", label: "算力成本概览" },
       { id: "cost-overview-2", label: "会话成本明细" },
-      { id: "agent-cost-detail", label: "Agent成本明细" },
-      { id: "llm-cost", label: "LLM成本明细" },
+      { id: "agent-cost-detail", label: "实例成本明细" },
+      { id: "llm-cost", label: "模型成本明细" },
     ],
   },
 ];
@@ -140,161 +135,16 @@ const ROWS = [
     amount: "¥22,400",
     date: "2025-03-15",
   },
-  {
-    id: "ORD-9817",
-    name: "客服机器人定制",
-    region: "华东",
-    status: "已取消",
-    amount: "¥0",
-    date: "2025-03-14",
-  },
-  {
-    id: "ORD-9816",
-    name: "BI 看板部署",
-    region: "华北",
-    status: "已完成",
-    amount: "¥31,500",
-    date: "2025-03-12",
-  },
-  {
-    id: "ORD-9815",
-    name: "消息推送通道",
-    region: "华东",
-    status: "处理中",
-    amount: "¥6,800",
-    date: "2025-03-11",
-  },
-  {
-    id: "ORD-9814",
-    name: "身份认证改造",
-    region: "华南",
-    status: "已完成",
-    amount: "¥19,200",
-    date: "2025-03-10",
-  },
-  {
-    id: "ORD-9813",
-    name: "日志归档策略",
-    region: "西南",
-    status: "待审核",
-    amount: "¥3,500",
-    date: "2025-03-09",
-  },
 ];
-
-function Icon({ name, className = "h-5 w-5" }) {
-  const common = `${className} shrink-0`;
-  switch (name) {
-    case "menu":
-      return (
-        <svg className={common} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
-        </svg>
-      );
-    case "search":
-      return (
-        <svg className={common} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
-        </svg>
-      );
-    case "bell":
-      return (
-        <svg className={common} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.082A2.02 2.02 0 0016 14.93V12a8 8 0 10-16 0v2.93a2.02 2.02 0 001.057 1.07l.01.005M14.857 17.082a23.848 23.848 0 01-5.454 1.082M14.857 17.082a23.848 23.848 0 00-5.454-1.082M9.143 17.082a23.848 23.848 0 01-5.454-1.082M9.143 17.082a23.848 23.848 0 00-5.454-1.082" />
-        </svg>
-      );
-    case "panorama":
-      return (
-        <svg className={common} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m0 0V9A2.25 2.25 0 0015.75 7h-1.5m-6 0V9A2.25 2.25 0 009 11.25v5.25m0 0h6" />
-        </svg>
-      );
-    case "digitalEmployee":
-      return (
-        <svg className={common} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z" />
-        </svg>
-      );
-    case "monitoring":
-      return (
-        <svg className={common} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21m-9-1.5h10.5a3 3 0 003-3V5.25a3 3 0 00-3-3H6.75a3 3 0 00-3 3v13.5a3 3 0 003 3z" />
-        </svg>
-      );
-    case "alerts":
-      return (
-        <svg className={common} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
-        </svg>
-      );
-    case "audit":
-      return (
-        <svg className={common} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
-        </svg>
-      );
-    case "inspection":
-      return (
-        <svg className={common} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25zM6.75 12h.008v.008H6.75V12zm0 3h.008v.008H6.75V15zm0 3h.008v.008H6.75V18z" />
-        </svg>
-      );
-    case "costAnalysis":
-      return (
-        <svg className={common} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M10.5 6a7.5 7.5 0 107.5 7.5h-7.5V6z"
-          />
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M13.5 10.5H21A7.5 7.5 0 0013.5 3v7.5z"
-          />
-        </svg>
-      );
-    case "chevron":
-      return (
-        <svg className={common} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-        </svg>
-      );
-    case "chevronLeft":
-      return (
-        <svg className={common} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-        </svg>
-      );
-    case "chevronRight":
-      return (
-        <svg className={common} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-        </svg>
-      );
-    case "sidebarCollapse":
-      return (
-        <svg className={common} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" />
-        </svg>
-      );
-    case "sidebarPanel":
-      return (
-        <svg className={common} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
-          <rect x="3" y="3" width="5" height="18" rx="1" />
-          <rect x="16" y="3" width="5" height="18" rx="1" />
-          <path d="M10 8l4 4-4 4" />
-        </svg>
-      );
-    default:
-      return null;
-  }
-}
 
 function CollapsedNavGroupFlyout({ item, childActive, activeNav, setActiveNav, setSidebarOpen }) {
   const wrapRef = useRef(null);
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState({ top: 0, left: 0 });
+
+  useEffect(() => {
+    setHeaderExtra(null);
+  }, [activeNav]);
 
   useLayoutEffect(() => {
     if (!open || !wrapRef.current) return;
@@ -414,6 +264,7 @@ export default function Dashboard() {
   });
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [headerExtra, setHeaderExtra] = useState(null);
   const [query, setQuery] = useState("");
   const [region, setRegion] = useState("全部");
   const [status, setStatus] = useState("全部");
@@ -472,7 +323,7 @@ export default function Dashboard() {
       if (item.id === activeNav) return [{ id: item.id, label: item.label }];
       if (item.children) {
         const child = item.children.find((c) => c.id === activeNav);
-        if (child) return [{ id: item.id, label: item.label }, { id: child.id, label: child.label }];
+        if (child) return [{ id: child.id, label: child.label }];
       }
     }
     return [{ id: activeNav, label: page.title }];
@@ -498,10 +349,12 @@ export default function Dashboard() {
           sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0",
         ].join(" ")}
       >
-        <div className={`flex h-16 items-center ${sidebarCollapsed ? "justify-center px-0" : "gap-3 px-4"}`}>
-          <div className="flex h-9 w-9 shrink-0 items-center justify-centerr from-primarytext-sm font-bold text-white">
-            <img src="./ops-logo.png" alt="" />
-          </div>
+        <div className="flex h-16 items-center gap-3 border-b border-gray-100 px-6 dark:border-gray-800">
+          <img
+            src="/logo.png"
+            alt="opsRobot"
+            className="h-9 w-9 rounded-lg object-contain"
+          />
           {!sidebarCollapsed && (
             <div>
               <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">opsRobot</p>
@@ -537,7 +390,7 @@ export default function Dashboard() {
                         className={[
                           "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors duration-200",
                           childActive
-                            ? "bg-primary-soft/80 text-primary dark:bg-primary/15 dark:text-primary"
+                            ? "text-primary"
                             : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100",
                         ].join(" ")}
                       >
@@ -555,7 +408,7 @@ export default function Dashboard() {
                         />
                       </button>
                       {(navGroupOpen[item.id] ?? true) && (
-                        <div className="ml-2 space-y-0.5 border-l border-gray-200 pl-3 dark:border-gray-700">
+                        <div className="ml-[22px] space-y-0.5 border-l border-gray-200 dark:border-gray-700">
                           {item.children.map((child) => {
                             const active = activeNav === child.id;
                             return (
@@ -567,7 +420,7 @@ export default function Dashboard() {
                                   setSidebarOpen(false);
                                 }}
                                 className={[
-                                  "flex w-full rounded-md py-2 pl-3 pr-2 text-left text-sm transition-colors duration-200",
+                                  "flex ml-2 mr-2 rounded-md py-2 pl-[14px] pr-2 text-left text-sm transition-colors duration-200",
                                   active
                                     ? "bg-primary-soft font-medium text-primary shadow-sm dark:bg-primary/15 dark:text-primary"
                                     : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100",
@@ -643,33 +496,19 @@ export default function Dashboard() {
           >
             <span className="flex h-5 w-5 items-center justify-center overflow-hidden">
               <span
-                className={`flex h-5 w-5 items-center justify-center transition-transform duration-300 ${
-                  sidebarCollapsed ? "rotate-180" : "rotate-0"
-                }`}
+                className={`flex h-5 w-5 items-center justify-center transition-transform duration-300 ${sidebarCollapsed ? "rotate-180" : "rotate-0"
+                  }`}
               >
                 <Icon name="sidebarPanel" className="h-3.5 w-3.5" />
               </span>
             </span>
-           { !sidebarCollapsed && <span
+            {!sidebarCollapsed && <span
               className={`overflow-hidden transition-all duration-300 w-12 opacity-100 mt-0.5`}
             >
               <span className="whitespace-nowrap">收起侧栏</span>
             </span>}
           </button>
         </div>
-
-        {/* <div className="border-t border-gray-100 p-4 dark:border-gray-800">
-          <div className="rounded-lg bg-gray-50 p-4 dark:bg-gray-900/60">
-            <p className="text-xs font-medium text-gray-700 dark:text-gray-300">需要帮助？</p>
-            <p className="mt-1 text-xs leading-relaxed text-gray-500 dark:text-gray-400">查看文档或联系管理员获取权限与数据说明。</p>
-            <button
-              type="button"
-              className="mt-3 w-full rounded-md bg-white px-3 py-2 text-xs font-medium text-primary shadow-sm ring-1 ring-gray-200 transition hover:bg-primary-soft hover:ring-primary/20 dark:bg-gray-800 dark:ring-gray-700 dark:hover:bg-primary/20"
-            >
-              打开帮助中心
-            </button>
-          </div>
-        </div> */}
       </aside>
 
       {/* Main */}
@@ -686,37 +525,34 @@ export default function Dashboard() {
             >
               <Icon name="menu" />
             </button>
-            <nav aria-label="面包屑导航">
-              <ol className="flex items-center gap-1.5 text-sm">
-                {/* <li>
-                  <button
-                    type="button"
-                    onClick={() => setActiveNav("audit-overview")}
-                    className="rounded-md px-1.5 py-1 font-medium text-gray-400 transition-colors hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
-                  >
-                    首页
-                  </button>
-                </li> */}
-                {crumbs.map((crumb, i) => (
-                  <li key={crumb.id} className="flex items-center gap-1.5">
-                    {i > 0 ? "/": ''}
-                    {i < crumbs.length - 1 ? (
-                      <button
-                        type="button"
-                        onClick={() => setActiveNav(crumb.id)}
-                        className="rounded-md px-1.5 py-1 text-gray-500 transition-colors hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
-                      >
-                        {crumb.label}
-                      </button>
-                    ) : (
-                      <span className="font-semibold text-gray-800 dark:text-gray-100">
-                        {crumb.label}
-                      </span>
-                    )}
-                  </li>
-                ))}
-              </ol>
-            </nav>
+            <div className="flex flex-col">
+              {headerExtra ? (
+                headerExtra
+              ) : (
+                <nav aria-label="面包屑导航">
+                  <ol className="flex items-center gap-1.5 text-sm">
+                    {crumbs.map((crumb, i) => (
+                      <li key={crumb.id} className="flex items-center gap-1.5">
+                        {i > 0 ? "/" : ''}
+                        {i < crumbs.length - 1 ? (
+                          <button
+                            type="button"
+                            onClick={() => setActiveNav(crumb.id)}
+                            className="rounded-md px-1.5 py-1 text-gray-500 transition-colors hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
+                          >
+                            {crumb.label}
+                          </button>
+                        ) : (
+                          <span className="font-semibold text-gray-800 dark:text-gray-100">
+                            {crumb.label}
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  </ol>
+                </nav>
+              )}
+            </div>
           </div>
           <div className="flex items-center gap-2 sm:gap-3">
             <ThemeToggle />
@@ -741,9 +577,9 @@ export default function Dashboard() {
           ) : activeNav === "audit-overview" ? (
             <AuditOverview />
           ) : activeNav === "session-audit" ? (
-            <SessionAudit />
+            <SessionAudit setHeaderExtra={setHeaderExtra} />
           ) : activeNav === "traceability" ? (
-            <FullChainTraceability />
+            <FullChainTraceability setHeaderExtra={setHeaderExtra} />
           ) : (
             <>
               <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

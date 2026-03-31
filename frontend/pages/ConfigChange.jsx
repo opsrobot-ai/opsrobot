@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
+import CostTimeRangeFilter from "../components/CostTimeRangeFilter.jsx";
 import CodeBlock from "../components/CodeBlock.jsx";
 import LoadingSpinner from "../components/LoadingSpinner.jsx";
 import {
@@ -21,7 +22,6 @@ import {
   trendBuckets7d,
   trendBuckets24h,
   trendBuckets30d,
-  trendBucketsRange,
   parseTsMs,
 } from "../lib/configAudit.js";
 
@@ -58,11 +58,6 @@ function suspiciousBadgeClasses(isSuspicious) {
     : "bg-emerald-100 text-emerald-800 ring-1 ring-inset ring-emerald-600/20 dark:bg-emerald-950/40 dark:text-emerald-200 dark:ring-emerald-500/25";
 }
 
-function toDatetimeLocalValue(ms) {
-  const x = new Date(ms);
-  const pad = (n) => String(n).padStart(2, "0");
-  return `${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}T${pad(x.getHours())}:${pad(x.getMinutes())}`;
-}
 
 export default function ConfigChange() {
   const [allEvents, setAllEvents] = useState([]);
@@ -78,10 +73,8 @@ export default function ConfigChange() {
   const [expandedEvent, setExpandedEvent] = useState(null);
   /** 展开区 Tab：overview | compare | proc | raw */
   const [detailTab, setDetailTab] = useState("overview");
-  /** 时间筛选：24h | 7d | 30d | custom */
-  const [timePreset, setTimePreset] = useState("7d");
-  const [customStart, setCustomStart] = useState("");
-  const [customEnd, setCustomEnd] = useState("");
+  /** 时间筛选：统一预设天数 */
+  const [activeDays, setActiveDays] = useState(7);
 
   const toggleExpandRow = (e) => {
     const id = stableRowId(e);
@@ -95,25 +88,9 @@ export default function ConfigChange() {
   // 计算时间范围参数
   const getTimeRangeParams = useMemo(() => {
     const now = new Date();
-    let startIso = "";
-    let endIso = now.toISOString();
-
-    if (timePreset === "24h") {
-      const start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-      startIso = start.toISOString();
-    } else if (timePreset === "7d") {
-      const start = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      startIso = start.toISOString();
-    } else if (timePreset === "30d") {
-      const start = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-      startIso = start.toISOString();
-    } else if (timePreset === "custom" && customStart && customEnd) {
-      startIso = new Date(customStart).toISOString();
-      endIso = new Date(customEnd).toISOString();
-    }
-
-    return { startIso, endIso };
-  }, [timePreset, customStart, customEnd]);
+    const start = new Date(now.getTime() - activeDays * 24 * 60 * 60 * 1000);
+    return { startIso: start.toISOString(), endIso: now.toISOString() };
+  }, [activeDays]);
 
   // 从 API 获取数据
   useEffect(() => {
@@ -171,11 +148,11 @@ export default function ConfigChange() {
 
   useEffect(() => {
     setPage(1);
-  }, [sortKey, sortDir, pageSize, timePreset, customStart, customEnd]);
+  }, [sortKey, sortDir, pageSize, activeDays]);
 
   useEffect(() => {
     setExpandedEvent(null);
-  }, [pageSafe, pageSize, sortKey, sortDir, timePreset, customStart, customEnd]);
+  }, [pageSafe, pageSize, sortKey, sortDir, activeDays]);
 
   useEffect(() => {
     setDetailTab("overview");
@@ -196,18 +173,10 @@ export default function ConfigChange() {
 
   const chartData = useMemo(() => {
     const now = Date.now();
-    if (timePreset === "24h") return trendBuckets24h(allEvents, now);
-    if (timePreset === "7d") return trendBuckets7d(allEvents, now);
-    if (timePreset === "30d") return trendBuckets30d(allEvents, now);
-    if (timePreset === "custom" && customStart && customEnd) {
-      const a = new Date(customStart).getTime();
-      const b = new Date(customEnd).getTime();
-      if (!Number.isNaN(a) && !Number.isNaN(b) && b >= a) {
-        return trendBucketsRange(allEvents, a, b);
-      }
-    }
-    return trendBuckets7d(allEvents, now);
-  }, [allEvents, timePreset, customStart, customEnd]);
+    if (activeDays <= 1) return trendBuckets24h(allEvents, now);
+    if (activeDays <= 7) return trendBuckets7d(allEvents, now);
+    return trendBuckets30d(allEvents, now);
+  }, [allEvents, activeDays]);
 
   return (
     <div className="space-y-6">
@@ -217,59 +186,18 @@ export default function ConfigChange() {
         </p>
       )}
 
+      <CostTimeRangeFilter activeDays={activeDays} onPreset={setActiveDays} />
+
       <section className="app-card p-4 sm:p-6">
-        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
           <div>
             <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">配置变更事件</h3>
             <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              {timePreset === "24h" && "近 24 小时按小时统计"}
-              {timePreset === "7d" && "近 7 天按日统计"}
-              {timePreset === "30d" && "近 30 天按日统计"}
-              {timePreset === "custom" && "自定义区间内按日统计"}
+              {activeDays <= 1 && "近 24 小时按小时统计"}
+              {activeDays === 7 && "近 7 天按日统计"}
+              {activeDays >= 30 && "近 " + activeDays + " 天按日统计"}
               {!loading && `（当前页 ${allEvents.length} 条，共 ${totalCount} 条）`}
             </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2 text-sm">
-            <label htmlFor="config-time-preset" className="text-gray-600 dark:text-gray-400">
-              时间范围
-            </label>
-            <select
-              id="config-time-preset"
-              value={timePreset}
-              onChange={(e) => {
-                const v = e.target.value;
-                setTimePreset(v);
-                if (v === "custom") {
-                  const end = Date.now();
-                  const start = end - 7 * 24 * 60 * 60 * 1000;
-                  setCustomStart((prev) => prev || toDatetimeLocalValue(start));
-                  setCustomEnd((prev) => prev || toDatetimeLocalValue(end));
-                }
-              }}
-              className="app-input py-1.5 px-2"
-            >
-              <option value="24h">最近 24 小时</option>
-              <option value="7d">最近 7 天</option>
-              <option value="30d">最近 1 个月</option>
-              <option value="custom">自定义</option>
-            </select>
-            {timePreset === "custom" && (
-              <>
-                <input
-                  type="datetime-local"
-                  value={customStart}
-                  onChange={(e) => setCustomStart(e.target.value)}
-                  className="app-input py-1.5 px-2 font-mono text-xs"
-                />
-                <span className="text-gray-500 dark:text-gray-400">至</span>
-                <input
-                  type="datetime-local"
-                  value={customEnd}
-                  onChange={(e) => setCustomEnd(e.target.value)}
-                  className="app-input py-1.5 px-2 font-mono text-xs"
-                />
-              </>
-            )}
           </div>
         </div>
 
@@ -286,7 +214,7 @@ export default function ConfigChange() {
                   contentStyle={{ fontSize: 12 }}
                   formatter={(value) => [`${value} 次`, "变更事件"]}
                   labelFormatter={(label) =>
-                    timePreset === "24h" ? `时间 ${label}` : `日期 ${label}`
+                    activeDays <= 1 ? `时间 ${label}` : `日期 ${label}`
                   }
                 />
                 <Bar dataKey="count" name="变更事件数" fill="#3b82f6" radius={[4, 4, 0, 0]} maxBarSize={48} />
@@ -297,32 +225,8 @@ export default function ConfigChange() {
       </section>
 
       <section className="min-w-0 app-card p-4 sm:p-6">
-          <TablePagination
-            page={pageSafe}
-            pageSize={pageSize}
-            total={totalCount}
-            onPageChange={setPage}
-            loading={loading}
-            trailingControls={
-              <>
-                <span className="text-sm text-gray-600 dark:text-gray-400">每页</span>
-                <select
-                  value={pageSize}
-                  onChange={(e) => setPageSize(Number(e.target.value))}
-                  className="app-input py-1.5 px-2"
-                >
-                  {[10, 20, 50, 100].map((n) => (
-                    <option key={n} value={n}>
-                      {n}
-                    </option>
-                  ))}
-                </select>
-                <span className="text-sm text-gray-600 dark:text-gray-400">条</span>
-              </>
-            }
-          />
 
-          <div className="mt-4 overflow-hidden rounded-lg border border-gray-100 dark:border-gray-800">
+          <div className="overflow-hidden rounded-lg border border-gray-100 dark:border-gray-800">
             <div className="overflow-x-auto">
               <table className="w-full min-w-[1000px] border-collapse text-left text-sm">
                 <thead>
@@ -630,6 +534,32 @@ export default function ConfigChange() {
               </table>
             </div>
           </div>
+
+          <TablePagination
+            page={pageSafe}
+            pageSize={pageSize}
+            total={totalCount}
+            onPageChange={setPage}
+            className="mt-6"
+            loading={loading}
+            trailingControls={
+              <>
+                <span className="text-sm text-gray-600 dark:text-gray-400">每页</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => setPageSize(Number(e.target.value))}
+                  className="app-input py-1.5 px-2"
+                >
+                  {[10, 20, 50, 100].map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-sm text-gray-600 dark:text-gray-400">条</span>
+              </>
+            }
+          />
         </section>
     </div>
   );

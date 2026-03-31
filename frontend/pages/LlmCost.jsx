@@ -11,9 +11,10 @@ import SortableTableTh from "../components/SortableTableTh.jsx";
 import TablePagination, { DEFAULT_TABLE_PAGE_SIZE } from "../components/TablePagination.jsx";
 
 export default function LlmCost() {
-  const def = useMemo(() => defaultRangeLastDays(30), []);
-  const [rangeStart, setRangeStart] = useState(def.start);
-  const [rangeEnd, setRangeEnd] = useState(def.end);
+  const [activeDays, setActiveDays] = useState(30);
+  const rangeObj = useMemo(() => defaultRangeLastDays(activeDays), [activeDays]);
+  const rangeStart = rangeObj.start;
+  const rangeEnd = rangeObj.end;
   const [sortKey, setSortKey] = useState(null);
   const [sortOrder, setSortOrder] = useState("asc");
   const [page, setPage] = useState(1);
@@ -167,16 +168,14 @@ export default function LlmCost() {
       ) : null}
 
       <CostTimeRangeFilter
-        rangeStart={rangeStart}
-        rangeEnd={rangeEnd}
-        onChangeStart={setRangeStart}
-        onChangeEnd={setRangeEnd}
+        activeDays={activeDays}
+        onPreset={setActiveDays}
       />
 
       <section className="app-card p-4 sm:p-6">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">LLM 成本明细</h2>
+            <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">模型成本明细</h2>
           </div>
           <button
             type="button"
@@ -188,22 +187,7 @@ export default function LlmCost() {
           </button>
         </div>
         {loading ? <LoadingSpinner message="加载中…" /> : null}
-        {rangeValid && totalRows > 0 && !loading ? (
-          <TablePagination
-            className="mt-6"
-            page={safePage}
-            pageSize={pageSize}
-            total={totalRows}
-            onPageChange={setPage}
-          />
-        ) : null}
-        <div
-          className={
-            rangeValid && totalRows > 0 && !loading
-              ? "mt-3 overflow-hidden rounded-lg border border-gray-100 dark:border-gray-800"
-              : "mt-6 overflow-hidden rounded-lg border border-gray-100 dark:border-gray-800"
-          }
-        >
+        <div className="mt-6 overflow-hidden rounded-lg border border-gray-100 dark:border-gray-800">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[880px] border-collapse text-left text-sm">
               <thead>
@@ -266,6 +250,15 @@ export default function LlmCost() {
             </table>
           </div>
         </div>
+        {rangeValid && totalRows > 0 && !loading ? (
+          <TablePagination
+            className="mt-6"
+            page={safePage}
+            pageSize={pageSize}
+            total={totalRows}
+            onPageChange={setPage}
+          />
+        ) : null}
       </section>
 
       {drillRow && (

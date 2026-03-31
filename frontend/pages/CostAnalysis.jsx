@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import LoadingSpinner from "../components/LoadingSpinner.jsx";
 import AgentTokenRoseChart from "../components/AgentTokenRoseChart.jsx";
+import CostTimeRangeFilter from "../components/CostTimeRangeFilter.jsx";
 import {
   Area,
   AreaChart,
@@ -70,11 +71,7 @@ function MomBadge({ pct }) {
   );
 }
 
-const TREND_PRESETS = [
-  { days: 7, label: "近 7 日" },
-  { days: 14, label: "近 14 日" },
-  { days: 30, label: "近 30 日" },
-];
+
 
 export default function CostAnalysis() {
   const [trendDays, setTrendDays] = useState(14);
@@ -171,8 +168,8 @@ export default function CostAnalysis() {
         avgValue: cards.dailyAvg7d.avgTokens,
         peakDay: cards.dailyAvg7d.peakDay,
         peakValue: cards.dailyAvg7d.peakTokens,
-        accent: CARD_ACCENTS[3],
-        border: CARD_BORDER[3],
+        accent: "bg-white",
+        border: "border-gray-100",
       },
     ];
   }, [cards]);
@@ -223,56 +220,19 @@ export default function CostAnalysis() {
 
   return (
     <div className="space-y-3">
-      {/* 顶部工具栏：参考监控台时间快捷筛选 */}
-      <div className="app-card flex flex-col gap-2 px-3 py-2.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs font-medium text-gray-600 dark:text-gray-400">趋势窗口</span>
-          <div className="flex flex-wrap gap-1.5">
-            {TREND_PRESETS.map((p) => (
-              <button
-                key={p.days}
-                type="button"
-                onClick={() => setTrendDays(p.days)}
-                disabled={loading}
-                className={[
-                  "rounded-lg px-3 py-1.5 text-xs font-medium transition",
-                  trendDays === p.days
-                    ? "bg-primary text-white shadow-sm"
-                    : "bg-gray-50 text-gray-700 ring-1 ring-gray-200 hover:bg-primary-soft hover:text-primary dark:bg-gray-800 dark:text-gray-200 dark:ring-gray-700",
-                  loading ? "cursor-wait opacity-70" : "",
-                ].join(" ")}
-              >
-                {p.label}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-          {meta?.trendRangeLabel ? (
-            <span className="text-xs text-gray-500 dark:text-gray-400">当前区间：{meta.trendRangeLabel}</span>
-          ) : null}
-          <button
-            type="button"
-            onClick={() => load()}
-            disabled={loading}
-            className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-primary/90 disabled:opacity-60"
-          >
-            {loading ? "刷新中…" : "刷新数据"}
-          </button>
-        </div>
-      </div>
+      {/* 顶部工具栏 */}
+      <CostTimeRangeFilter
+        activeDays={trendDays}
+        onPreset={setTrendDays}
+      />
 
       {/* KPI：紧凑高度 + 左侧色条（整体约缩短 1/4） */}
       <section className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
         {overviewCards.map((m) => (
           <article
             key={m.title}
-            className={[
-              "relative overflow-hidden app-card border-l-4 p-3 transition duration-200 hover:shadow-card-hover dark:hover:shadow-none",
-              m.border,
-            ].join(" ")}
+            className="app-card p-3.5 transition duration-200 hover:shadow-card-hover dark:hover:shadow-none border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900"
           >
-            <div className={`pointer-events-none absolute inset-0 bg-gradient-to-br ${m.accent} opacity-90`} />
             <div className="relative">
               {m.kind === "total" ? (
                 <>
@@ -359,7 +319,7 @@ export default function CostAnalysis() {
           {barRows.length === 0 ? (
             <p className="flex h-full items-center justify-center text-sm text-gray-400">暂无数据</p>
           ) : (
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0}>
               <BarChart data={barRows} margin={{ top: 8, right: 8, left: 0, bottom: 4 }} barCategoryGap="18%">
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
                 <XAxis dataKey="date" tick={{ fontSize: 11, fill: "#6b7280" }} tickMargin={8} />
@@ -405,7 +365,7 @@ export default function CostAnalysis() {
             {modelShare.length > 0 ? (
               <div className="flex flex-col items-center gap-3 sm:flex-row sm:items-center sm:justify-center sm:gap-4">
                 <div className="h-[188px] w-full max-w-[250px] shrink-0">
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                     <PieChart>
                       <Pie
                         data={modelShare}
@@ -468,7 +428,7 @@ export default function CostAnalysis() {
                       </button>
                     </div>
                   ) : (
-                    <ResponsiveContainer width="100%" height="100%">
+                    <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                       <PieChart>
                         <Pie
                           data={inOutPieFiltered}
@@ -582,7 +542,7 @@ export default function CostAnalysis() {
           <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100 sm:text-base">Top10 会话 Token 消耗</h2>
           <div className="mt-2 min-h-0 flex-1">
             {topSessions.length > 0 ? (
-              <ResponsiveContainer width="100%" height={260}>
+              <ResponsiveContainer width="100%" height={260} minWidth={0}>
                 <BarChart
                   data={topSessions}
                   layout="vertical"

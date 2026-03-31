@@ -1,17 +1,8 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import SortableTableTh from "../components/SortableTableTh.jsx";
 import LoadingSpinner from "../components/LoadingSpinner.jsx";
 import TablePagination, { DEFAULT_TABLE_PAGE_SIZE } from "../components/TablePagination.jsx";
-
-const TIME_PRESETS = [
-  { label: "今日", value: 0 },
-  { label: "昨日", value: 1 },
-  { label: "近7天", value: 7 },
-  { label: "近14天", value: 14 },
-  { label: "近30天", value: 30 },
-  { label: "本月", value: "month" },
-  { label: "自然月", value: "naturalMonth" },
-];
+import CostTimeRangeFilter from "../components/CostTimeRangeFilter.jsx";
 
 function pad2(n) { return String(n).padStart(2, "0"); }
 
@@ -35,6 +26,17 @@ function fmtCost(v) {
 function MultiSelectFilter({ label, options, value, onChange, placeholder }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const wrapRef = useRef(null);
+
+  // 点击外部关闭
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
 
   const filtered = options.filter((o) =>
     o.label.toLowerCase().includes(search.toLowerCase())
@@ -52,7 +54,7 @@ function MultiSelectFilter({ label, options, value, onChange, placeholder }) {
   };
 
   return (
-    <div className="relative" onMouseLeave={() => setOpen(false)}>
+    <div className="relative" ref={wrapRef}>
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -127,7 +129,7 @@ function MultiSelectFilter({ label, options, value, onChange, placeholder }) {
 
 export default function CostOverview2() {
   const [filters, setFilters] = useState({
-    timePreset: 14,
+    timePreset: 7,
     timeStart: "",
     timeEnd: "",
     agents: [],
@@ -135,15 +137,6 @@ export default function CostOverview2() {
     gateways: [],
     models: [],
   });
-  const [timeRange, setTimeRange] = useState(() => {
-    const now = new Date();
-    const start = new Date(now.getTime() - 14 * 86400000);
-    return { start: toDatetimeLocalValue(start), end: toDatetimeLocalValue(now) };
-  });
-
-  const [showCustom, setShowCustom] = useState(false);
-  const [customStart, setCustomStart] = useState("");
-  const [customEnd, setCustomEnd] = useState("");
 
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
@@ -164,27 +157,12 @@ export default function CostOverview2() {
   // Compute effective time bounds
   const effectiveTimeBounds = useMemo(() => {
     const now = new Date();
-    if (filters.timePreset === "custom") {
-      return filters.timeStart && filters.timeEnd
-        ? { startDay: filters.timeStart.slice(0, 10), endDay: filters.timeEnd.slice(0, 10) }
-        : null;
-    }
     const days = Number(filters.timePreset);
     const endDay = now.toISOString().slice(0, 10);
-    let startDay;
-    if (filters.timePreset === "naturalMonth") {
-      startDay = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-01`;
-    } else if (filters.timePreset === "month") {
-      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDate() + 1);
-      startDay = d.toISOString().slice(0, 10);
-    } else if (days === 0) {
-      startDay = endDay;
-    } else {
-      const start = new Date(now.getTime() - days * 86400000);
-      startDay = start.toISOString().slice(0, 10);
-    }
+    const start = new Date(now.getTime() - days * 86400000);
+    const startDay = start.toISOString().slice(0, 10);
     return { startDay, endDay };
-  }, [filters]);
+  }, [filters.timePreset]);
 
   // Load filter options
   useEffect(() => {
@@ -200,7 +178,7 @@ export default function CostOverview2() {
         setGatewayOptions((data.gateways || []).map((v) => ({ value: v, label: v })));
         setModelOptions((data.models || []).map((v) => ({ value: v, label: v })));
       })
-      .catch(() => {});
+      .catch(() => { });
   }, [effectiveTimeBounds]);
 
   // Load data
@@ -227,7 +205,7 @@ export default function CostOverview2() {
       const text = await r.text();
       if (!r.ok) {
         let msg = text;
-        try { const j = JSON.parse(text); if (j?.error) msg = j.error; } catch {}
+        try { const j = JSON.parse(text); if (j?.error) msg = j.error; } catch { }
         throw new Error(msg || `HTTP ${r.status}`);
       }
       const j = JSON.parse(text);
@@ -258,16 +236,8 @@ export default function CostOverview2() {
     });
   };
 
-  const handlePreset = (preset) => {
-    setFilters((f) => ({ ...f, timePreset: preset }));
-    setShowCustom(false);
-  };
-
-  const applyCustomRange = () => {
-    if (customStart && customEnd) {
-      setFilters((f) => ({ ...f, timePreset: "custom", timeStart: customStart, timeEnd: customEnd }));
-      setShowCustom(false);
-    }
+  const handlePreset = (days) => {
+    setFilters((f) => ({ ...f, timePreset: days }));
   };
 
   const totalPages = total === 0 ? 0 : Math.ceil(total / pageSize);
@@ -285,140 +255,62 @@ export default function CostOverview2() {
         </div>
       ) : null}
 
-      {/* 快捷时间筛选 */}
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="shrink-0 text-xs font-medium text-gray-600 dark:text-gray-400">时间范围</span>
-        <div className="flex flex-wrap gap-1.5">
-          {TIME_PRESETS.map((p) => (
-            <button
-              key={p.value}
-              type="button"
-              onClick={() => handlePreset(p.value)}
-              className={[
-                "rounded-lg px-3 py-1.5 text-xs font-medium transition",
-                filters.timePreset === p.value
-                  ? "bg-primary text-white shadow-sm"
-                  : "bg-gray-50 text-gray-700 ring-1 ring-gray-200 hover:bg-primary-soft hover:text-primary dark:bg-gray-800 dark:text-gray-200 dark:ring-gray-700 dark:hover:text-primary",
-              ].join(" ")}
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
-        <button
-          type="button"
-          onClick={() => setShowCustom((o) => !o)}
-          className={[
-            "rounded-lg px-3 py-1.5 text-xs font-medium transition",
-            showCustom || filters.timePreset === "custom"
-              ? "bg-primary text-white shadow-sm"
-              : "bg-gray-50 text-gray-700 ring-1 ring-gray-200 hover:bg-primary-soft hover:text-primary dark:bg-gray-800 dark:text-gray-200 dark:ring-gray-700 dark:hover:text-primary",
-          ].join(" ")}
-        >
-          自定义
-        </button>
-        {showCustom && (
-          <div className="flex items-center gap-2">
-            <input
-              type="datetime-local"
-              value={customStart}
-              onChange={(e) => setCustomStart(e.target.value)}
-              className="app-input w-auto px-2 py-1 text-xs"
-            />
-            <span className="text-xs text-gray-400">至</span>
-            <input
-              type="datetime-local"
-              value={customEnd}
-              onChange={(e) => setCustomEnd(e.target.value)}
-              className="app-input w-auto px-2 py-1 text-xs"
-            />
-            <button
-              type="button"
-              onClick={applyCustomRange}
-              className="rounded-lg bg-primary px-2.5 py-1 text-xs font-medium text-white hover:bg-primary/90"
-            >
-              应用
-            </button>
-          </div>
-        )}
-        {effectiveTimeBounds && (
-          <span className="ml-2 text-xs text-gray-400">
-            {effectiveTimeBounds.startDay} ~ {effectiveTimeBounds.endDay}
-          </span>
-        )}
-      </div>
-
-      {/* 多维度过滤 */}
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="shrink-0 text-xs font-medium text-gray-600 dark:text-gray-400">筛选</span>
-        <MultiSelectFilter
-          label="Agent"
-          options={agentOptions}
-          value={filters.agents}
-          onChange={handleMultiChange("agents")}
-          placeholder="全部 Agent"
-        />
-        <MultiSelectFilter
-          label="用户"
-          options={userOptions}
-          value={filters.users}
-          onChange={handleMultiChange("users")}
-          placeholder="全部用户"
-        />
-        <MultiSelectFilter
-          label="Gateway"
-          options={gatewayOptions}
-          value={filters.gateways}
-          onChange={handleMultiChange("gateways")}
-          placeholder="全部 Gateway"
-        />
-        <MultiSelectFilter
-          label="大模型"
-          options={modelOptions}
-          value={filters.models}
-          onChange={handleMultiChange("models")}
-          placeholder="全部模型"
-        />
-      </div>
+      <CostTimeRangeFilter
+        activeDays={filters.timePreset}
+        onPreset={handlePreset}
+      />
 
       {/* 表格 */}
       <div className="app-card overflow-hidden">
-        <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3 dark:border-gray-800 sm:px-6">
+        {/* 表头：标题 + 筛选同一行 */}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 px-4 py-3 dark:border-gray-800 sm:px-6">
           <div className="flex items-center gap-3">
             <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">会话成本明细</h2>
-            {!loading && total > 0 && (
-              <span className="rounded-md bg-gray-100 px-2 py-0.5 text-[11px] text-gray-500 dark:bg-gray-800 dark:text-gray-400">
-                共 {total.toLocaleString()} 条
-              </span>
-            )}
           </div>
-          <button
-            type="button"
-            onClick={() => load()}
-            disabled={loading}
-            className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm transition hover:border-primary/40 hover:bg-primary-soft hover:text-primary disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:text-primary"
-          >
-            {loading ? "刷新中…" : "刷新"}
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <MultiSelectFilter
+              label="Agent"
+              options={agentOptions}
+              value={filters.agents}
+              onChange={handleMultiChange("agents")}
+              placeholder="全部 Agent"
+            />
+            <MultiSelectFilter
+              label="用户"
+              options={userOptions}
+              value={filters.users}
+              onChange={handleMultiChange("users")}
+              placeholder="全部用户"
+            />
+            <MultiSelectFilter
+              label="Gateway"
+              options={gatewayOptions}
+              value={filters.gateways}
+              onChange={handleMultiChange("gateways")}
+              placeholder="全部 Gateway"
+            />
+            <MultiSelectFilter
+              label="大模型"
+              options={modelOptions}
+              value={filters.models}
+              onChange={handleMultiChange("models")}
+              placeholder="全部模型"
+            />
+          </div>
         </div>
 
         {loading && rows.length === 0 ? (
           <LoadingSpinner message="正在加载会话成本…" />
         ) : (
           <>
-            {totalPages > 1 && (
-              <div className="border-b border-gray-100 px-4 py-2 dark:border-gray-800 sm:px-6">
-                <TablePagination page={safePage} pageSize={pageSize} total={total} onPageChange={setPage} />
-              </div>
-            )}
             <div className="overflow-x-auto">
               <table className="w-full min-w-[900px] border-collapse text-left text-sm">
                 <thead>
                   <tr className="border-b border-gray-100 bg-gray-50/90 dark:border-gray-800 dark:bg-gray-900/50">
                     <SortableTableTh label="会话 ID" columnKey="session_id" sortKey={sortKey} sortOrder={sortOrder} onSort={handleSort} className="w-[160px]" />
-                    <SortableTableTh label="Agent" columnKey="agentName" sortKey={sortKey} sortOrder={sortOrder} onSort={handleSort} className="w-[120px]" />
+                    <SortableTableTh label="实例" columnKey="agentName" sortKey={sortKey} sortOrder={sortOrder} onSort={handleSort} className="w-[120px]" />
                     <SortableTableTh label="用户" columnKey="userName" sortKey={sortKey} sortOrder={sortOrder} onSort={handleSort} className="w-[100px]" />
-                    <SortableTableTh label="Gateway" columnKey="gateway" sortKey={sortKey} sortOrder={sortOrder} onSort={handleSort} className="w-[100px]" />
+                    <SortableTableTh label="网关" columnKey="gateway" sortKey={sortKey} sortOrder={sortOrder} onSort={handleSort} className="w-[100px]" />
                     <SortableTableTh label="大模型" columnKey="model" sortKey={sortKey} sortOrder={sortOrder} onSort={handleSort} className="w-[120px]" />
                     <SortableTableTh label="总 Token" columnKey="totalTokens" sortKey={sortKey} sortOrder={sortOrder} onSort={handleSort} className="w-[90px] text-right" numeric />
                     <SortableTableTh label="输入 Token" columnKey="inputTokens" sortKey={sortKey} sortOrder={sortOrder} onSort={handleSort} className="w-[90px] text-right" numeric />
@@ -465,13 +357,14 @@ export default function CostOverview2() {
                 </tbody>
               </table>
             </div>
+            {totalPages > 1 && (
+              <div className="border-t border-gray-100 px-4 py-3 dark:border-gray-800 sm:px-6">
+                <TablePagination page={safePage} pageSize={pageSize} total={total} onPageChange={setPage} />
+              </div>
+            )}
           </>
         )}
       </div>
-
-      <p className="text-center text-xs text-gray-400 dark:text-gray-500">
-        数据来自 Doris · otel 库
-      </p>
     </div>
   );
 }

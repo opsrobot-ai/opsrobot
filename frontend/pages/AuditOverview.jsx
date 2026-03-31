@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import CostTimeRangeFilter from "../components/CostTimeRangeFilter.jsx";
 import LoadingSpinner from "../components/LoadingSpinner.jsx";
 import {
   CartesianGrid,
@@ -43,11 +44,12 @@ export default function AuditOverview() {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [activeDays, setActiveDays] = useState(7);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    fetch("/api/agent-sessions-audit-overview")
+    fetch(`/api/agent-sessions-audit-overview?days=${activeDays}`)
       .then(async (r) => {
         const body = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(body.error || r.statusText);
@@ -71,7 +73,7 @@ export default function AuditOverview() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [activeDays]);
 
   const pieData = useMemo(() => {
     const raw = data?.pieRisk ?? [];
@@ -82,6 +84,8 @@ export default function AuditOverview() {
 
   return (
     <div className="space-y-8">
+      <CostTimeRangeFilter activeDays={activeDays} onPreset={setActiveDays} />
+
       {error && (
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/40 dark:text-amber-200">
           无法加载：{error}
@@ -93,25 +97,23 @@ export default function AuditOverview() {
 
       {!loading && data && (
         <>
-          {/* 核心指标：今日 / 本周 / 本月 */}
+          {/* 核心指标 — 改为单行 4 类，跟随统计时间展示 */}
           <section>
             <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-gray-100">核心指标</h3>
-            <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-              {[
-                { label: "今日", w: data.windows?.today },
-                { label: "本周", w: data.windows?.week },
-                { label: "本月", w: data.windows?.month },
-              ].map(({ label, w }) => (
-                <div key={label} className="space-y-3">
-                  <p className="text-xs font-medium uppercase tracking-wide text-primary">{label}</p>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <MetricCard title="会话总数" value={num(w?.session_total)} hint="started_at 落在窗口内" />
-                    <MetricCard title="活跃会话数" value={num(w?.active_sessions)} hint="updated_at 落在窗口内" accent="bg-primary-soft/30 dark:bg-primary/10" />
-                    <MetricCard title="用户访问数" value={num(w?.user_access)} hint="账号字段去重" />
-                    <MetricCard title="设备连接数" value={num(w?.device_connections)} hint="channel + last_to 去重" />
-                  </div>
-                </div>
-              ))}
+            <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+              <MetricCard
+                title="会话总数"
+                value={num(data.summary?.session_total)}
+                hint={`近 ${activeDays} 日 started_at 落在窗口内`}
+              />
+              <MetricCard
+                title="活跃会话数"
+                value={num(data.summary?.active_sessions)}
+                hint={`近 ${activeDays} 日 updated_at 落在窗口内`}
+                accent="bg-primary-soft/30 dark:bg-primary/10"
+              />
+              <MetricCard title="用户访问数" value={num(data.summary?.user_access)} hint="账号字段去重" />
+              <MetricCard title="设备连接数" value={num(data.summary?.device_connections)} hint="channel + last_to 去重" />
             </div>
           </section>
 
@@ -191,7 +193,7 @@ export default function AuditOverview() {
             </div>
 
             <div className="app-card border border-gray-100 p-4 dark:border-gray-800">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">近 7 日会话量趋势</h3>
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">近 {activeDays} 日会话量趋势</h3>
               <div className="mt-2 h-[280px] w-full">
                 {loading ? (
                   <LoadingSpinner message="" className="h-full" />
@@ -210,7 +212,7 @@ export default function AuditOverview() {
             </div>
 
             <div className="app-card border border-gray-100 p-4 xl:col-span-2 dark:border-gray-800">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">近 7 日风险操作趋势</h3>
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">近 {activeDays} 日风险操作趋势</h3>
               <div className="mt-2 h-[300px] w-full">
                 {loading ? (
                   <LoadingSpinner message="" className="h-full" />

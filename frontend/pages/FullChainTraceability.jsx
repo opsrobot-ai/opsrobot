@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import CodeBlock from "../components/CodeBlock.jsx";
+import CostTimeRangeFilter from "../components/CostTimeRangeFilter.jsx";
 import { TRACE_SESSION_SAMPLES, findTraceSessionByQuery } from "../data/traceSessions.js";
 
 function formatDateTime(iso) {
@@ -52,10 +53,11 @@ function outcomeBadge(outcome) {
   );
 }
 
-export default function FullChainTraceability() {
+export default function FullChainTraceability({ setHeaderExtra }) {
   const [input, setInput] = useState("");
   const [query, setQuery] = useState("");
   const [expandedId, setExpandedId] = useState(null);
+  const [activeDays, setActiveDays] = useState(7);
 
   const session = useMemo(() => (query ? findTraceSessionByQuery(query) : null), [query]);
 
@@ -64,13 +66,44 @@ export default function FullChainTraceability() {
     setExpandedId(null);
   }, [input]);
 
+  const handleBack = useCallback(() => {
+    setQuery("");
+    setInput("");
+    setExpandedId(null);
+  }, []);
+
+  useEffect(() => {
+    if (session) {
+      setHeaderExtra(
+        <div className="flex items-center gap-1.5 text-sm">
+          <button
+            type="button"
+            onClick={handleBack}
+            className="rounded-md px-1.5 py-1 text-gray-500 transition-colors hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
+          >
+            全文链路溯源
+          </button>
+          <span className="text-gray-400">/</span>
+          <span className="font-mono text-[13px] font-semibold text-violet-700 dark:text-violet-300">
+            {session.session_id}
+          </span>
+          <span className="ml-1 text-xs text-gray-400 font-medium font-sans">详情查看</span>
+        </div>
+      );
+    } else {
+      setHeaderExtra(null);
+    }
+  }, [session, setHeaderExtra, handleBack]);
+
   const exampleIds = useMemo(() => TRACE_SESSION_SAMPLES.map((s) => s.session_id), []);
 
   return (
     <div className="space-y-6">
+      <CostTimeRangeFilter activeDays={activeDays} onPreset={setActiveDays} />
+
       <section className="app-card p-4 sm:p-6">
-        <h2 className="text-base font-semibold text-gray-900">会话溯源</h2>
-        <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
+        <h2 className="text-sm font-semibold text-gray-900 border-b border-gray-100 pb-3 mb-6 dark:text-gray-100 dark:border-gray-800">会话列表</h2>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <div className="relative min-w-0 flex-1">
             <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-400">
               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
@@ -123,6 +156,7 @@ export default function FullChainTraceability() {
       {session && (
         <>
           <section className="app-card p-4 sm:p-6">
+            <h2 className="text-sm font-semibold text-gray-900 border-b border-gray-100 pb-3 mb-6 dark:text-gray-100 dark:border-gray-800">索引元数据</h2>
             <div className="flex flex-col gap-4 border-b border-gray-100 pb-4 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0 space-y-1">
                 <div className="flex flex-wrap items-center gap-2">

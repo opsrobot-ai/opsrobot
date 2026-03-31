@@ -35,12 +35,23 @@ function sendJson(res, status, body) {
  * - GET /api/session-cost-options?startDay=&endDay=
  */
 export function agentSessionsDevApi() {
+  const useMock = process.env.VITE_MOCK === "true";
+  if (useMock) {
+    console.log("[dev-api] 🎭 Mock 模式已启用（VITE_MOCK=true），API 将返回预设数据");
+  }
   return {
     name: "agent-sessions-dev-api",
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
         const url = req.url || "";
         if (req.method !== "GET") return next();
+
+        // Mock 模式：使用静态数据，无需数据库
+        if (useMock) {
+          const { handleMockRequest } = await import("../mock/mockHandler.mjs");
+          if (handleMockRequest(url, res)) return;
+          return next();
+        }
 
         if (url === "/api/cost-overview" || url.startsWith("/api/cost-overview?")) {
           try {

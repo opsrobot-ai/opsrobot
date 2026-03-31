@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:mock": "VITE_MOCK=true vite",
     "api": "node backend/serveAgentSessionsApi.mjs",
     "build": "vite build",
     "preview": "vite preview"
