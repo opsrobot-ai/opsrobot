@@ -126,4 +126,9 @@ networks:
     name: openclaw-observability-platform-network
 
 volumes:
-  doris_data:
+  doris_data: 
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ~/var/doris_data
