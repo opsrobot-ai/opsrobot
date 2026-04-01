@@ -17,6 +17,11 @@ jobs:
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
+    
+    - name: Wait for services to be healthy
+      run: |
+        echo "Waiting for mkdir doris_data"
+        mkdir -p ~/var/doris_data
 
     - name: Build and start containers
       run: docker compose -f docker-compose-build.yml up -d --build
