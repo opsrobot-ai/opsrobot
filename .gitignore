@@ -148,3 +148,4 @@ AGENTS.md
 dist/
 .DS_Store
 .claude
+.pnpm-store
