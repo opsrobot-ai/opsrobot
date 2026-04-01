@@ -140,7 +140,7 @@ docker compose -f docker-compose-build.yml up -d
 
 ```bash
 # 使用本地历史数据
-DORIS_USE_LOCAL_DATA=true docker compose -f docker-compose-build.yml up -d
+DORIS_USE_LOCAL_DATA=true docker compose -f docker-compose-build.yml up -d --build
 ```
 
 | `DORIS_USE_LOCAL_DATA` | 行为 |
