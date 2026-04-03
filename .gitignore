@@ -146,6 +146,8 @@ docs/_book/
 cursor/
 datamodel/
 AGENTS.md
+.idea/
+.vscode/
 
 # Doris data (persist across redeployments, do not commit actual data)
 doris-data/*
