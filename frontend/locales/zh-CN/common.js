@@ -44,6 +44,9 @@ export default {
   "nav.costOverview2": "会话成本明细",
   "nav.agentCostDetail": "实例成本明细",
   "nav.llmCost": "模型成本明细",
+  "nav.gatewayMonitoring": "Gateway监控",
+  "nav.otelOverview": "概览",
+  "nav.instanceMonitoring": "实例监控",
 
   "page.panorama.title": "数据总览",
   "page.panorama.subtitle": "关键指标与订单一览 · 实时更新",

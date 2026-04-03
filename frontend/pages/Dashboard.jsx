@@ -11,6 +11,8 @@ import CostOverview2 from "./CostOverview2.jsx";
 import AgentCostDetail from "./AgentCostDetail.jsx";
 import LlmCost from "./LlmCost.jsx";
 import FullChainTraceability from "./FullChainTraceability.jsx";
+import OtelOverview from "./OtelOverview.jsx";
+import InstanceMonitoring from "./InstanceMonitoring.jsx";
 import ConfigChange from "./ConfigChange.jsx";
 import SessionAudit from "./SessionAudit.jsx";
 import AuditOverview from "./AuditOverview.jsx";
@@ -34,6 +36,15 @@ const PAGE_META_KEYS = {
 };
 
 const NAV_KEYS = [
+  {
+    id: "gateway-monitoring",
+    labelKey: "nav.gatewayMonitoring",
+    icon: "monitoring",
+    children: [
+      { id: "otel-overview", labelKey: "nav.otelOverview" },
+      { id: "instance-monitoring", labelKey: "nav.instanceMonitoring" },
+    ],
+  },
   {
     id: "full-time-monitoring",
     labelKey: "nav.fullTimeMonitoring",
@@ -573,7 +584,11 @@ export default function Dashboard() {
         </header>
 
         <main className="flex-1 overflow-y-auto p-6">
-          {activeNav === "cost-overview" ? (
+          {activeNav === "otel-overview" ? (
+            <OtelOverview />
+          ) : activeNav === "instance-monitoring" ? (
+            <InstanceMonitoring />
+          ) : activeNav === "cost-overview" ? (
             <CostAnalysis />
           ) : activeNav === "cost-overview-2" ? (
             <CostOverview2 />
