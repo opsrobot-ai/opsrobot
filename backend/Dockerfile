@@ -1,0 +1,22 @@
+# API 服务 Dockerfile
+FROM node:lts-alpine3.23
+
+WORKDIR /app
+
+# 复制 package.json 和 lock 文件
+COPY package.json package-lock.json ./
+
+# 安装生产依赖
+RUN npm ci --omit=dev
+
+# 复制服务端代码
+COPY backend/ ./backend/
+
+# 复制共享的 lib 目录（前端与 API 共用）
+COPY frontend/lib/ ./frontend/lib/
+
+# 暴露端口
+EXPOSE 8787
+
+# 启动 API 服务
+CMD ["node", "backend/serveAgentSessionsApi.mjs"]

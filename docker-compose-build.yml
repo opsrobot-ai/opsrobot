@@ -1,0 +1,134 @@
+name: openclaw-observability-platform
+
+
+services:
+  # =============================================================================
+  # frontend - 静态文件服务
+  # =============================================================================
+  frontend:
+    build:
+      context: .
+      dockerfile: ./frontend/Dockerfile
+    container_name: frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 3000 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - openclaw-net
+
+  
+  # =============================================================================
+  # backend 服务 - Node.js 后端
+  # =============================================================================
+  backend:
+    build:
+      context: .
+      dockerfile: ./backend/Dockerfile
+    container_name: backend
+    restart: unless-stopped
+    ports:
+      - "${API_PORT:-8787}:8787"
+    environment:
+      - DORIS_HOST=${DORIS_HOST:-doris}
+      - DORIS_PORT=${DORIS_PORT:-9030}
+      - DORIS_USER=${DORIS_USER:-root}
+      - DORIS_PASSWORD=${DORIS_PASSWORD:-}
+      - DORIS_DATABASE=${DORIS_DATABASE:-opsRobot}
+      - PORT=8787
+    depends_on:
+      doris:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 8787 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - openclaw-net
+
+  # =============================================================================
+  # Apache Doris - 单节点服务
+  # =============================================================================
+  doris:
+    image: ${DORIS_IMAGE:-apache/doris:4.0.3-all-slim}
+    container_name: doris
+    hostname: doris
+    restart: unless-stopped
+    privileged: true
+    deploy:
+      resources:
+        limits:
+          cpus: 4
+          memory: 16G
+        reservations:
+          cpus: 1
+          memory: 4G
+    ports:
+      - "${DORIS_FE_HTTP_PORT:-8030}:8030"  # FE HTTP port (Web UI)
+      - "${DORIS_FE_MYSQL_PORT:-9030}:9030"  # FE MySQL protocol port
+      - "${DORIS_BE_HTTP_PORT:-8040}:8040"   # BE HTTP port
+    environment:
+      - SKIP_CHECK_ULIMIT=true
+      - "TZ=${TIMEZONE:-Asia/Shanghai}"
+    volumes:
+      - doris_data:/opt/apache-doris
+      - ./scripts/init-doris-schema.sql:/opt/apache-doris/init-doris-schema.sql:ro
+      - ./scripts/start-doris.sh:/start-doris.sh:ro
+    entrypoint: ["/bin/bash", "/start-doris.sh"]
+    healthcheck:
+      test: ["CMD-SHELL", "mysql -h 127.0.0.1 -P 9030 -uroot -e 'SHOW BACKENDS\\G' | grep -q 'Alive: true' || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 180s
+    networks:
+      - openclaw-net
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.144.0
+    hostname: otel-collector
+    container_name: otel-collector
+    command: ["--config=/etc/otelcol/otel-collector-config.yaml"]
+    volumes:
+      - ./otel-config.yaml:/etc/otelcol/otel-collector-config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC receiver
+      - "4318:4318"   # OTLP HTTP receiver
+      - "8888:8888"   # Prometheus metrics (collector self-monitoring)
+      - "8889:8889"   # Prometheus exporter metrics
+      - "13133:13133" # Health check extension
+    environment:
+      - DORIS_FE_HTTP_ENDPOINT=${DORIS_FE_HTTP_ENDPOINT:-http://doris:8040}
+      - DORIS_FE_MYSQL_ENDPOINT=${DORIS_FE_MYSQL_ENDPOINT:-doris:9030}
+      - DORIS_USERNAME=${DORIS_USERNAME:-root}
+      - DORIS_PASSWORD=${DORIS_PASSWORD:-}
+      - DORIS_DATABASE=${DORIS_DATABASE:-otel}
+      - DORIS_TABLE_LOGS=${DORIS_TABLE_LOGS:-otel_logs}
+      - DORIS_TABLE_TRACES=${DORIS_TABLE_TRACES:-otel_traces}
+      - DORIS_TABLE_METRICS=${DORIS_TABLE_METRICS:-otel_metrics}
+    restart: unless-stopped
+    networks:
+      - openclaw-net
+
+networks:
+  openclaw-net:
+    driver: bridge
+    name: openclaw-observability-platform-network
+
+volumes:
+  doris_data: 
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ~/var/doris_data  # 将宿主机目录绑定到容器卷，确保数据持久化并且可以在宿主机上访问

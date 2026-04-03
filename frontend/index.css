@@ -1,0 +1,48 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    color-scheme: light;
+  }
+  html.dark {
+    color-scheme: dark;
+  }
+  body {
+    @apply font-sans antialiased text-gray-800 bg-surface-page;
+  }
+  .dark body {
+    @apply bg-gray-950 text-gray-100;
+  }
+}
+
+@layer components {
+  /** 卡片区块：与浅色页面对齐的深色表面 */
+  .app-card {
+    @apply rounded-xl border border-gray-100 bg-white shadow-card dark:border-gray-800 dark:bg-gray-900 dark:shadow-none;
+  }
+  /** 表单控件 */
+  .app-input {
+    @apply rounded-lg border border-gray-200 bg-white py-2.5 text-sm text-gray-900 shadow-sm transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100;
+  }
+  /** 次要按钮 / 分页按钮 */
+  .app-btn-outline {
+    @apply rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 shadow-sm transition hover:border-primary/40 hover:bg-primary-soft hover:text-primary disabled:cursor-not-allowed disabled:opacity-40 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800 dark:hover:text-primary;
+  }
+  /** Recharts：点击图表选中扇区时浏览器绘制的 focus 矩形框 */
+  .recharts-layer,
+  .recharts-layer * {
+    outline: none !important;
+    box-shadow: none !important;
+  }
+  .recharts-wrapper {
+    user-select: none;
+  }
+  .recharts-tooltip-cursor {
+    fill: transparent;
+  }
+  *:focus {
+    outline: none;
+  }
+}

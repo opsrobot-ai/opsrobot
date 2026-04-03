@@ -1,0 +1,313 @@
+api:
+  enabled: false
+  address: 0.0.0.0:8686
+
+timezone: "Asia/Shanghai"
+
+sources:
+  sessions:
+    type: exec
+    command: 
+      - "sh"
+      - "-c"
+      - 'for f in /Users/lxg/.openclaw/agents/*/sessions/sessions.json; do if [ -f "$$f" ]; then tr -d "\n" < "$$f"; echo ""; fi; done'
+    mode: scheduled
+    scheduled:
+      exec_interval_secs: 60
+
+  # 采集 JSONL 会话日志文件
+  session_logs:
+    type: file
+    include:
+    - "/Users/lxg/.openclaw/agents/*/sessions/*.jsonl" #修改为实际的 openclaw  session 日志路径
+    read_from: beginning
+    fingerprint:
+      strategy: device_and_inode
+
+  # 采集 gateway 日志文件
+  gateway_logs:
+    type: file
+    include:
+    - "/Users/lxg/.openclaw/logs/gateway.log"
+    - "/Users/lxg/.openclaw/logs/gateway.err.log"
+    read_from: beginning
+    fingerprint:
+      strategy: device_and_inode
+
+  # 采集 audit_logs 日志文件
+  audit_logs:
+    type: file
+    include:
+    - "/Users/lxg/.openclaw/logs/config-audit.jsonl"
+    read_from: beginning
+    fingerprint:
+      strategy: device_and_inode
+
+transforms:
+  #解析 JSON，遍历每个 key-value 拆成独立记录
+  session_transform:
+    type: remap
+    inputs:
+    - sessions
+    source: |
+      parsed = parse_json!(string!(.message))
+      obj = object!(parsed)
+      ks = keys(obj)
+      result = []
+      for_each(ks) -> |_idx, key| {
+        entry = get!(obj, [key])
+
+        session_key_parts = split(key, ":")        
+        agent_name = if length(session_key_parts) >= 2 {
+            session_key_parts[1]
+        } else {
+            key
+        }
+
+        result = push(result, {
+          "session_id": string(get(entry, ["sessionId"]) ?? "") ?? "",
+          "session_key": string(get(entry, ["systemPromptReport","sessionKey"]) ?? "") ?? "",
+          "display_name": string(get(entry, ["displayName"]) ?? "") ?? "",
+          "agent_name": agent_name,
+          "started_at": get(entry, ["startedAt"]) ?? null,
+          "updated_at": get(entry, ["updatedAt"]) ?? null,
+          "ended_at": get(entry, ["endedAt"]) ?? null,
+          "system_sent": get(entry, ["systemSent"]) ?? null,
+          "aborted_last_run": get(entry, ["abortedLastRun"]) ?? null,
+          "chat_type": string(get(entry, ["chatType"]) ?? "") ?? "",
+          "channel": string(get(entry, ["channel"]) ?? "") ?? "",
+          "group_id": string(get(entry, ["groupId"]) ?? "") ?? "",
+          "origin_label": string(get(entry, ["origin", "label"]) ?? "") ?? "",
+          "origin_provider": string(get(entry, ["origin", "provider"]) ?? "") ?? "",
+          "origin_surface": string(get(entry, ["origin", "surface"]) ?? "") ?? "",
+          "origin_chat_type": string(get(entry, ["origin", "chatType"]) ?? "") ?? "",
+          "origin_from": string(get(entry, ["origin", "from"]) ?? "") ?? "",
+          "origin_to": string(get(entry, ["origin", "to"]) ?? "") ?? "",
+          "origin_account_id": string(get(entry, ["origin", "accountId"]) ?? "") ?? "",
+          "delivery_context_channel": string(get(entry, ["deliveryContext", "channel"]) ?? "") ?? "",
+          "delivery_context_to": string(get(entry, ["deliveryContext", "to"]) ?? "") ?? "",
+          "delivery_context_account_id": string(get(entry, ["deliveryContext", "accountId"]) ?? "") ?? "",
+          "last_channel": string(get(entry, ["lastChannel"]) ?? "") ?? "",
+          "last_to": string(get(entry, ["lastTo"]) ?? "") ?? "",
+          "last_account_id": string(get(entry, ["lastAccountId"]) ?? "") ?? "",
+          "log_attributes": entry
+        })
+      }
+      . = result
+
+  #采集 JSONL 会话日志文件，从文件路径提取 session_id，提取解析所有需要的嵌套字段
+  session_logs_transform:
+    type: remap
+    inputs:
+    - session_logs
+    drop_on_error: false
+    drop_on_abort: false
+    source: |
+      # 从文件路径中提取文件名作为 session_id（去掉 .jsonl 后缀）
+      filepath = string(.file) ?? ""
+      parts = split(filepath, "/")
+      filename = string(get!(parts, [length(parts) - 1])) ?? ""
+      session_id_val = replace(filename, ".jsonl", "")
+
+      # 解析原始 JSON
+      obj = parse_json(string(.message) ?? "{}") ?? {}
+
+      # 提取根级别字段
+      .type = get(obj, ["type"]) ?? null
+      .version = get(obj, ["version"]) ?? null
+      .message_id = get(obj, ["id"]) ?? null
+      .timestamp = get(obj, ["timestamp"]) ?? null
+      .message_parent_id = get(obj, ["parentId"]) ?? null
+      .provider = get(obj, ["provider"]) ?? null
+      .model_id = get(obj, ["modelId"]) ?? null
+      .thinking_level = get(obj, ["thinkingLevel"]) ?? null
+
+      # 提取 message 及 message.detail 嵌套字段
+      .message_details_cwd = get(obj, ["message", "details", "cwd"]) ?? null
+      .message_role = get(obj, ["message", "role"]) ?? null
+      .message_tool_call_id = get(obj, ["message", "toolCallId"]) ?? null
+      .message_tool_name = get(obj, ["message", "toolName"]) ?? null
+      .message_is_error = get(obj, ["message", "isError"]) ?? null
+      .message_details_status = get(obj, ["message", "details", "status"]) ?? null
+      .message_details_exit_code = get(obj, ["message", "details", "exitCode"]) ?? null
+      .message_api = get(obj, ["message", "api"]) ?? null
+      .message_stop_reason = get(obj, ["message", "stopReason"]) ?? null
+      .message_model = get(obj, ["message", "model"]) ?? null
+
+      # 提取 message.usage 及其嵌套字段
+      .message_usage_input = get(obj, ["message", "usage", "input"]) ?? 0
+      .message_usage_output = get(obj, ["message", "usage", "output"]) ?? 0
+      .message_usage_cache_read = get(obj, ["message", "usage", "cacheRead"]) ?? 0
+      .message_usage_cache_write = get(obj, ["message", "usage", "cacheWrite"]) ?? 0
+      .message_usage_total_tokens = get(obj, ["message", "usage", "totalTokens"]) ?? 0
+
+      # 设置主键与变体记录
+      .session_id = session_id_val
+      .log_attributes = obj
+
+      # 清理无用字段以免写入无效列
+      del(.message)
+      del(.file)
+      del(.source_type)
+
+  # 解析 gateway 日志格式
+  # 日志格式：2026-03-24T13:36:06.199+08:00 [canvas] host mounted at http://...
+  gateway_logs_transform:
+    type: remap
+    inputs:
+    - gateway_logs
+    drop_on_error: false
+    drop_on_abort: false
+    source: |
+      raw_message = string(.message) ?? ""
+      filepath = string(.file) ?? ""
+
+      # 根据文件名判断 level：.err.log 文件默认 error，其他默认 info
+      if contains(filepath, ".err.log") {
+        .level = "error"
+      } else {
+        .level = "info"
+      }
+
+      # 使用正则解析日志行
+      # 格式：时间戳 [module] 日志内容
+      parts, err = parse_regex(raw_message, r'^(?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+[+-]\d{2}:\d{2})\s+\[(?P<module>[^\]]+)\]\s+(?P<content>.*)$')
+
+    
+      ts_raw = string!(get!(parts, ["ts"]))
+      parsed_ts, err = parse_timestamp(ts_raw, "%+")
+      if err == null {
+          .event_time = format_timestamp!(parsed_ts, "%Y-%m-%d %H:%M:%S", timezone: "Asia/Shanghai")
+      }
+      .module = string!(get!(parts, ["module"]))
+      .log_attributes = raw_message
+
+      # 清理无用字段
+      del(.message)
+      del(.file)
+      del(.source_type)
+      del(.timestamp)
+      del(.host)
+
+  # 解析 config-audit JSONL 日志格式
+  # 每行一个 JSON 对象，提取 event_time 和 log_attributes
+  audit_logs_transform:
+    type: remap
+    inputs:
+    - audit_logs
+    drop_on_error: false
+    drop_on_abort: true
+    source: |
+      raw_message = string(.message) ?? ""
+
+      # 解析 JSON
+      obj, err = parse_json(raw_message)
+
+      if err != null {
+        # JSON 解析失败，跳过该事件
+        log("WARN: Failed to parse JSON, skipping: " + raw_message)
+        abort
+      }
+
+      if obj == null {
+        abort
+      }
+
+      # 提取 ts 字段作为 event_time
+      ts_raw = get(obj, ["ts"]) ?? ""
+      if ts_raw == "" {
+        log("WARN: ts field is empty, skipping")
+        abort
+      }
+
+      parsed_ts, err = parse_timestamp(ts_raw, "%+")
+      if err == null {
+          .event_time = format_timestamp!(parsed_ts, "%Y-%m-%d %H:%M:%S", timezone: "Asia/Shanghai")
+      }
+
+      # log_attributes 为当前行记录（整个 JSON 对象）
+      .log_attributes = obj
+
+      # 清理无用字段
+      del(.message)
+      del(.file)
+      del(.source_type)
+      del(.timestamp)
+      del(.host)
+
+sinks:
+  session_to_doris: &sink_template
+    type: http
+    inputs:
+    - session_transform
+    uri: "http://127.0.0.1:8040/api/opsRobot/agent_sessions/_stream_load"
+    method: put
+    batch:
+      max_events: 100
+      timeout_secs: 10
+    auth:
+      strategy: basic
+      user: "root"
+      password: ""
+    encoding:
+      codec: json
+    request:
+      headers:
+        Expect: "100-continue"
+        format: "json"
+        strip_outer_array: "true"
+        read_json_by_line: "true"
+
+
+
+  # 会话日志输出到 Doris agent_sessions_logs 表
+  session_logs_to_doris:
+    <<: *sink_template
+    inputs:
+    - session_logs_transform
+    uri: "http://127.0.0.1:8040/api/opsRobot/agent_sessions_logs/_stream_load"
+
+
+
+  # gateway 日志输出到 Doris gateway_logs 表
+  gateway_logs_to_doris:
+    <<: *sink_template
+    inputs:
+    - gateway_logs_transform
+    uri: "http://127.0.0.1:8040/api/opsRobot/gateway_logs/_stream_load"
+        
+
+
+
+  # config-audit 日志输出到 Doris audit_logs 表
+  audit_logs_to_doris:
+    <<: *sink_template
+    inputs:
+    - audit_logs_transform
+    uri: "http://127.0.0.1:8040/api/opsRobot/audit_logs/_stream_load"
+
+
+  # session_to_console: &console_template
+  #   type: console
+  #   inputs:
+  #   - session_transform
+  #   encoding:
+  #     codec: json
+
+  # # 会话日志输出到控制台（调试用）
+  # session_logs_to_console:
+  #   <<: *console_template
+  #   inputs:
+  #   - session_logs_transform
+
+  # # # gateway 日志输出到控制台（调试用）
+  # gateway_logs_to_console:
+  #   <<: *console_template
+  #   inputs:
+  #   - gateway_logs_transform
+
+  # # # config-audit 日志输出到控制台（调试用）
+  # audit_logs_to_console:
+  #   <<: *console_template
+  #   inputs:
+  #   - audit_logs_transform
