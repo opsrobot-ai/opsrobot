@@ -3,11 +3,12 @@ api:
   address: 0.0.0.0:8686
 
 timezone: "Asia/Shanghai"
+data_dir: "vector-data"
 
 sources:
   sessions:
     type: exec
-    command: [ "sh", "-c", "tr -d '\n' < /Users/lxg/.openclaw/agents/main/sessions/sessions.json" ]
+    command: [ "sh", "-c", "tr -d '\n' < /Users/rinck/.openclaw/agents/main/sessions/sessions.json" ]
     mode: scheduled
     scheduled:
       exec_interval_secs: 60
@@ -16,7 +17,7 @@ sources:
   session_logs:
     type: file
     include:
-    - "/Users/lxg/.openclaw/agents/*/sessions/*.jsonl" #修改为实际的 openclaw  session 日志路径
+    - "/Users/rinck/.openclaw/agents/*/sessions/*.jsonl" #修改为实际的 openclaw  session 日志路径
     read_from: beginning
     fingerprint:
       strategy: device_and_inode
@@ -25,8 +26,8 @@ sources:
   gateway_logs:
     type: file
     include:
-    - "/Users/lxg/.openclaw/logs/gateway.log"
-    - "/Users/lxg/.openclaw/logs/gateway.err.log"
+    - "/Users/rinck/.openclaw/logs/gateway.log"
+    - "/Users/rinck/.openclaw/logs/gateway.err.log"
     read_from: beginning
     fingerprint:
       strategy: device_and_inode
@@ -35,7 +36,7 @@ sources:
   audit_logs:
     type: file
     include:
-    - "/Users/lxg/.openclaw/logs/config-audit.jsonl"
+    - "/Users/rinck/.openclaw/logs/config-audit.jsonl"
     read_from: beginning
     fingerprint:
       strategy: device_and_inode

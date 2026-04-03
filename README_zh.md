@@ -65,6 +65,11 @@
 | **Data Pipeline** | Vector | - | 数据采集、转换与写入管道 |
 | **Data Source** | OpenClaw Agent | - | AI Agent 运行时，日志输出源 |
 
+## 官方文档 (Documentation)
+
+关于更细致的功能详解、本地化开发构建以及数据流水线接入部署，请参阅我们的核心文档集：
+👉 [进入 OpenClaw 可观测性平台文档指南](./docs/README.md)
+
 ---
 
 ## 功能介绍
@@ -213,7 +218,7 @@ vector --config vector.yaml
 
 ## 参与贡献与社区：
 我们欢迎并鼓励任何形式的贡献！无论是提交 Bug 反馈、完善文档，还是提交核心代码的 PR，都是对 opsRobot 开源社区的巨大支持。
-贡献指南: 请阅读我们的 [CONTRIBUTING.md 链接] 了解如何开始。
+贡献指南: 请阅读我们的 [文档：开发指南与环境构建](./docs/development/local-setup.md) 了解如何开始。
 社区交流:微信交流群二维码
 
 

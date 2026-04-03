@@ -68,6 +68,11 @@
 | **Data Pipeline** | Vector | - | Data collection, transformation, and ingestion pipeline |
 | **Data Source** | OpenClaw Agent | - | AI Agent runtime, source of log output |
 
+## Official Documentation
+
+For more detailed feature breakdowns, local development build instructions, and data pipeline deployment, please refer to our core documentation set:
+👉 [View OpenClaw Observability Platform Documentation Guide](./docs/README.md)
+
 ---
 
 ## Features

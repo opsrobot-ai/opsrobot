@@ -8,11 +8,14 @@
     "dev:mock": "VITE_MOCK=true vite",
     "api": "node backend/serveAgentSessionsApi.mjs",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "docs:build": "honkit build docs _book",
+    "docs:serve": "honkit serve docs"
   },
   "dependencies": {
     "echarts": "^6.0.0",
     "echarts-for-react": "^3.0.6",
+    "iconv-lite": "^0.6.3",
     "mysql2": "^3.20.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -22,6 +25,7 @@
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
+    "honkit": "^6.1.7",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.15",
     "vite": "^5.4.11"
