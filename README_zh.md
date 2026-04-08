@@ -33,9 +33,9 @@
 │  │   React)     │    │  Port: 8787   │    │  Port: 9030       │ │
 │  │  Port: 3000  │    └───────────────┘    └───────────────────┘ │
 │  └──────────────┘                                               │
-│           ▲                                                     │
-│           │                                                     │
-│  ┌────────┴────────────────────────────────────────────────┐    │
+│                                                ▲                │
+│                                                │                │
+│  ┌─────────────────────────────────────────────┴───────────┐    │
 │  │                  OTel  Data Pipeline                    │    │
 │  │                                                         │    │
 │  │  ┌─────────────┐   ┌──────────────┐   ┌───────────────┐ │    │
@@ -67,43 +67,8 @@
 
 ---
 
-## 功能介绍
-
-### 1. 安全审计 (Security Audit)
-
-| 功能模块 | 说明 |
-|----------|------|
-| **审计概览** | 核心安全指标、风险统计、实时态势、趋势与排行 |
-| **配置变更** | 关键配置项变更历史记录，支持按来源、事件类型、配置路径等多维度筛选 |
-| **会话审计** | OpenClaw 会话索引、模型使用与 Token 用量合规留痕 |
 
 
-### 2 成本分析 (Cost Analysis)
-
-| 功能模块 | 说明 |
-|----------|------|
-| **成本概览** | 总成本、日均消耗、多维度占比分析、趋势图表 |
-| **Agent 成本列表** | 各 Agent 的总消耗、单任务平均消耗、调用量与成功率统计 |
-| **LLM 成本明细** | 按模型维度的 Token 使用量与费用明细 |
-
----
-
-
-## 如何工作
-
-```
-┌─────────┐    ┌───────────────────┐    ┌─────────────────┐    ┌──────────────┐
-│OpenClaw │───►│  Vector Pipeline  │───►│ Apache Doris    │◄───│   Frontend   │
-│ Agent   │    │   (数据采集与转换)  │    │ (数据存储分析)    │    │   (可视化)    │
-│ Logs    │    │                   │    │                 │    │              │
-└─────────┘    └───────────────────┘    └─────────────────┘    └──────┬───────┘
-                                                                      │
-                                           ┌─────────────────┐        │
-                                           │   Backend API   │◄───────┘
-                                           │   (Node.js)     │
-                                           │   Port: 8787    │
-                                           └─────────────────┘
-```
 
 ## 在线体验
 
@@ -112,125 +77,113 @@
 - **地址**: http://nw1pe2061132.vicp.fun/
 - **密码**: aishu.cn
 
-### 环境要求
 
-- Docker Desktop
+## 快速开始
+
+### 1.环境要求
+
+- Docker Desktop 及 Docker Compose 插件
 - Node.js 18+
-### 方式一：Docker Compose -镜像 部署（推荐）
+
+### 2.克隆项目
 
 ```bash
-# 或使用完整路径
+https://github.com/opsrobot-ai/opsrobot.git
+cd opsrobot
+```
+
+### 3.基于镜像部署后台服务
+
+```bash
 docker compose -f docker-compose.yml up -d
 ```
-### 方式二：Docker Compose -编译 部署
 
-```bash
-# 构建并启动所有服务
-docker compose up -d
-
-# 或使用完整路径
-docker compose -f docker-compose-build.yml up -d
-```
-
-#### Doris 数据持久化
-
-为保证doris 数据的持久话，会将doris 相关数据保存在 ～/var/doris_data, 如果没有该目录需要使用下面命令创建文件夹。
-如果像修改到其他文件夹路径，在docker-compose-build.yml   的volumes》doris_data配置上修改 
-```bash
-# 创建doris 持久化数据文件夹
- mkdir -p  ～/var/doris_data
-```
-默认情况下，每次重新部署时 Doris 会重新初始化（历史数据会被清除）。如需保留数据：
-
-```bash
-# 使用本地历史数据
- docker compose -f docker-compose-build.yml up -d --build
-```
-
-| `DORIS_USE_LOCAL_DATA` | 行为 |
-|------------------------|------|
-| `false`（默认） | 每次部署时清除所有数据并重新初始化 |
-| `true` | 保留并使用 `./doris-data` 中的本地历史数据 |
-
-服务启动后访问：
-
-| 服务 | 地址 |
-|------|------|
-| 前端界面 | http://localhost:3000 |
-| Doris FE | http://localhost:8030 |
-
-### 方式三：本地开发
-
-```bash
-# 安装依赖
-npm install
-
-# 启动后端 API（端口 8787）
-npm run api
-
-# 另起终端，启动前端开发服务器（端口 3000）
-npm run dev
-```
-
-### 配置 Vector 数据采集
-
-说明：vector 作为openclaw的日志采集器，需要每个openclaw实际机器上安装配置vector，OpenClaw 可观测性平台 支持多个vector 采集器实现对多个openclaw 日志数据的采集
+服务启动后访问：http://localhost:3000
 
 
-修改 `vector.yaml` 中的数据源路径，指向实际的 OpenClaw 日志目录：
+### 4.配置 OpenClaw 数据采集
 
-```yaml
-sources:
-  sessions:
-    command: ["cat", "/path/to/openclaw/sessions/sessions.json"]
+**说明：在每个 OpenClaw 运行的机器上安装配置采集器vector**
+[vector官网](https://vector.dev/docs/)  [vector 安装说明](https://vector.dev/docs/setup/installation/)
 
-  session_logs:
-    include:
-      - "/path/to/openclaw/agents/*/sessions/*.jsonl"
-
-  gateway_logs:
-    include:
-      - "/path/to/openclaw/logs/gateway.log"
-      - "/path/to/openclaw/logs/gateway.err.log"
-
-  audit_logs:
-    include:
-      - "/path/to/openclaw/logs/config-audit.jsonl"
-```
-
-macos vector 安装：
+#### MacOS 环境的采集器安装：
 
 ```bash
 brew tap vectordotdev/brew && brew install vector
 ```
 
-Linux 安装：
+#### Linux 环境的采集器安装：
 
+CentOS 系统使用 yum 命令安装：
 ```bash
 bash -c "$(curl -L https://setup.vector.dev)"
 sudo yum install vector
 ```
 
-启动 Vector：
+Ubuntu 系统使用 apt-get 命令安装：
+```bash
+bash -c "$(curl -L https://setup.vector.dev)"
+sudo apt-get install vector
+```
+
+#### 修改 `vector.yaml` 采集配置文件：
+[vector配置文档](https://vector.dev/docs/reference/configuration/)
+指向后端服务器 IP 地址（如果与 OpenClaw 在同一台服务中，无需修改）：
+```yaml
+sinks:
+  session_to_doris: &sink_template
+    uri: "http://127.0.0.1:8040/api/opsRobot/agent_sessions/_stream_load"
+
+  session_logs_to_doris:
+    uri: "http://127.0.0.1:8040/api/opsRobot/agent_sessions_logs/_stream_load"
+
+  gateway_logs_to_doris:
+    uri: "http://127.0.0.1:8040/api/opsRobot/gateway_logs/_stream_load"
+
+  audit_logs_to_doris:
+    uri: "http://127.0.0.1:8040/api/opsRobot/audit_logs/_stream_load"
+```
+
+指向实际的 OpenClaw 日志目录，实现日志采集监听：
+```yaml
+sources:
+  sessions:
+    command: 
+      - "sh"
+      - "-c"
+      - 'for f in ~/.openclaw/agents/*/sessions/sessions.json; do if [ -f "$$f" ]; then tr -d "\n" < "$$f"; echo ""; fi; done'
+
+  session_logs:
+    include:
+      - "~/.openclaw/agents/*/sessions/*.jsonl"
+
+  gateway_logs:
+    include:
+      - "~/.openclaw/logs/gateway.log"
+      - "~/.openclaw/logs/gateway.err.log"
+
+  audit_logs:
+    include:
+      - "~/.openclaw/logs/config-audit.jsonl"
+```
+
+#### 启动 Vector 采集器服务：
 
 ```bash
 vector --config vector.yaml
 ```
 
-### 环境变量
+### 5.查看 OpenClaw 的所有观测数据：
 
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| `DORIS_HOST` | doris | Doris 主机名 |
-| `DORIS_PORT` | 9030 | Doris MySQL 端口 |
-| `DORIS_USER` | root | 数据库用户名 |
-| `DORIS_PASSWORD` | (空) | 数据库密码 |
-| `DORIS_DATABASE` | opsRobot | 数据库名称 |
-| `API_PORT` | 8787 | Backend API 端口 |
-| `FRONTEND_PORT` | 3000 | 前端端口 |
-| `DORIS_USE_LOCAL_DATA` | false | 是否在重新部署时保留 Doris 历史数据。`false` = 重新初始化（默认），`true` = 使用本地数据 |
+* 在 OpenClaw 界面进行对话互动
+* 在 opsRobot 产品界面中查看采集数据：http://localhost:3000
 
----
+
+
+
+
+
+
 
 ## 版本兼容性
 本项目紧随 OpenClaw 社区的发展，目前已基于 OpenClaw 最新版本 完成了开发、功能验证及稳定性测试。为确保各项可观测性指标的准确抓取与展示，建议在以下环境中使用：
