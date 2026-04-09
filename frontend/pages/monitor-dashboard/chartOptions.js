@@ -23,7 +23,7 @@ export function getDailyTokenOption() {
         "03-28",
       ],
       axisLine: { lineStyle: { color: "#16436e" } },
-      axisLabel: { color: "#6b93a7", fontSize: 10 },
+      axisLabel: { color: "#6b93a7", fontSize: 10, interval: 1 },
       axisTick: { show: false },
     },
     yAxis: {

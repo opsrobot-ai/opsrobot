@@ -12,6 +12,16 @@ export const DIGITAL_EMPLOYEE_ROWS = [
     active: true,
   },
   { name: "销售复盘员", role: "销售", status: "离线", sessions: "2,104", token: "6.2M", color: "#4a72ff" },
+  { name: "客服助手-小云", role: "客服", status: "在线", sessions: "476", token: "7.8M", color: "#00f0ff" },
+  { name: "法务问答官", role: "法务", status: "在线", sessions: "142", token: "4.6M", color: "#00f0ff" },
+  { name: "运维巡检员", role: "运维", status: "离线", sessions: "214", token: "5.9M", color: "#4a72ff" },
+  { name: "内容审核官", role: "审核", status: "在线", sessions: "631", token: "11.3M", color: "#00f0ff" },
+  { name: "财务对账助手", role: "财务", status: "在线", sessions: "287", token: "8.4M", color: "#00f0ff" },
+  { name: "工单分派员", role: "调度", status: "离线", sessions: "519", token: "6.8M", color: "#4a72ff" },
+  { name: "招聘筛选助手", role: "HR", status: "在线", sessions: "173", token: "3.9M", color: "#00f0ff" },
+  { name: "知识库管家", role: "知识", status: "在线", sessions: "744", token: "12.6M", color: "#00f0ff" },
+  { name: "产品需求助理", role: "产品", status: "离线", sessions: "265", token: "5.1M", color: "#4a72ff" },
+  { name: "营销投放官", role: "营销", status: "在线", sessions: "408", token: "9.2M", color: "#00f0ff" },
 ];
 
 export const ECOSYSTEM_APPS = ["Discord", "Telegram", "Slack", "Web", "飞书", "钉钉"];

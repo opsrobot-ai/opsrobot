@@ -10,7 +10,7 @@ import MonitorPanel from "./MonitorPanel.jsx";
 
 export default function MonitorBottomRow() {
   return (
-    <div className="flex flex-col lg:flex-row gap-4 flex-[3] min-h-[220px]">
+    <div className="flex flex-col lg:flex-row gap-3 flex-[3] min-h-[220px]">
       <MonitorPanel title="Token 消耗 Top10 Agent" className="w-full lg:w-1/4 h-full">
         <ReactECharts option={getTopAgentOption()} style={{ height: "100%", width: "100%" }} />
       </MonitorPanel>
@@ -44,10 +44,6 @@ export default function MonitorBottomRow() {
         className="w-full lg:w-1/4 h-full"
         headerExtra={
           <div className="flex items-center gap-2 text-[10px] sm:text-xs">
-            <div className="flex items-center gap-1 text-[#00f0ff]">
-              <span className="w-2 h-2 rounded-full bg-[#00f0ff] animate-pulse" />
-              LIVE 64
-            </div>
             <div className="text-[#8fb1c6]">
               近14天 <span className="text-white font-mono ml-1">8,098</span>
             </div>
