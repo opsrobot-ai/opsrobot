@@ -1,4 +1,4 @@
-import centerBg from "../images/centerpic4.png";
+import centerBg from "../images/centerpic6.png";
 import centerTopBg from "../images/centertopbg1.png";
 
 export default function MonitorCenterPanorama({ kpis, loading }) {
