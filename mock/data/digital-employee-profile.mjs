@@ -5,6 +5,7 @@ import { mockDigitalEmployeeOverview } from "./digital-employee-overview.mjs";
  * 对齐后端 buildDigitalEmployeeProfile 输出结构
  */
 export function mockDigitalEmployeeProfile(agentName, days, hours, sessionScopeRaw) {
+  const now = Date.now();
   let wanted = String(agentName ?? "").trim();
   try {
     wanted = decodeURIComponent(wanted);
@@ -45,18 +46,18 @@ export function mockDigitalEmployeeProfile(agentName, days, hours, sessionScopeR
   const agentSessions = (ov.o3_employees ?? [])
     .filter((s) => String(s.agentName || "") === String(agent.agentName || ""))
     .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
-  const previewRows = agentSessions.slice(0, 20).map((s, i) => ({
+  const previewRows = agentSessions.slice(0, 50).map((s, i) => ({
     session_id: s.session_id || s.sessionId,
     sessionKey: s.sessionKey,
-    label: `Mock 会话 ${i + 1}`,
-    updatedAt: s.lastUpdatedAt,
-    abortedLastRun: Number(s.abortedCount) > 0,
+    label: s.displayLabel || `Mock 会话 ${i + 1}`,
+    updatedAt: s.lastUpdatedAt || s.updatedAt,
+    abortedLastRun: Boolean(s.abortedLastRun) || Number(s.abortedCount) > 0,
     totalTokens: s.totalTokens ?? null,
-    durationMs: s.p95DurationMs ?? null,
-    estimatedCostUsd: s.totalCostUsd ?? null,
-    riskHigh: Number(s.riskHighTotal) || (i % 13 === 0 ? 1 : 0),
-    riskMedium: Number(s.riskMediumTotal) || (i % 7 === 0 ? 1 : 0),
-    riskLow: Number(s.riskLowTotal) || 0,
+    durationMs: s.durationMs ?? s.p95DurationMs ?? null,
+    estimatedCostUsd: s.totalCostUsd ?? s.estimatedCostUsd ?? null,
+    riskHigh: Number(s.riskHigh) || Number(s.riskHighTotal) || (i % 13 === 0 ? 1 : 0),
+    riskMedium: Number(s.riskMedium) || Number(s.riskMediumTotal) || (i % 7 === 0 ? 1 : 0),
+    riskLow: Number(s.riskLow) || Number(s.riskLowTotal) || 0,
     toolErrorCount: Number(s.toolErrorCount) || 0,
     execCommandErrorCount: Number(s.execCommandErrorCount) || 0,
   }));
@@ -90,17 +91,24 @@ export function mockDigitalEmployeeProfile(agentName, days, hours, sessionScopeR
     windowStartMs: ov.windowStartMs,
     agent,
     l1: {
-      headline: `${agent.agentName} 在窗口内共 ${agent.sessionCount} 次会话（Mock）。`,
-      actions: ["Mock：观察五维 Tab 与下钻按钮文案。", "接入真实 API 后将替换为 L1 结论文案。"],
+      headline: `${agent.agentName} 在窗口内共 ${agent.sessionCount} 次会话，综合健康 ${agent.healthOverall ?? "—"}。`,
+      actions: [
+        ...(agent.dimensions?.security === "red" ? ["安全维度标红：建议结合会话链路溯源核对工具/文件/网络行为。"] : []),
+        ...(agent.dimensions?.quality === "red" || agent.successRate < 0.8 ? ["质量偏低：复盘中止会话与模型/渠道稳定性。"] : []),
+        ...(agent.dimensions?.efficacy === "red" ? ["效能 P95 偏高：关注长会话与工具链耗时。"] : []),
+        ...(agent.dimensions?.cost === "red" ? ["成本偏高：对比 Token 结构与会话频次。"] : []),
+        "整体平稳：持续观察五维趋势与 Top 风险会话即可。",
+      ].slice(0, 4),
     },
     header: {
-      employeeKey: agent.employeeKey,
       sessionKey: agent.sessionKey,
       sessionKeys: Array.isArray(agent.sessionKeys) ? agent.sessionKeys : [agent.sessionKey].filter(Boolean),
       chatType: agent.chatTypeTop ?? "—",
       channelTop: agent.channels?.[0]?.name ?? "—",
-      online: true,
-      minutesSinceLastActivity: 12,
+      online: agent.lastUpdatedAt ? (now - agent.lastUpdatedAt <= 15 * 60 * 1000) : false,
+      minutesSinceLastActivity: agent.lastUpdatedAt
+        ? Math.max(0, Math.round((now - agent.lastUpdatedAt) / 60000))
+        : null,
       workspaceDir: `/mock/workspace/${String(agent.agentName || "agent").replace(/\s+/g, "-").toLowerCase()}`,
     },
     quad: {
@@ -110,6 +118,7 @@ export function mockDigitalEmployeeProfile(agentName, days, hours, sessionScopeR
       securityLevel: Number(agent.securityRiskScore) >= 70 ? "高" : Number(agent.securityRiskScore) >= 45 ? "中" : "低",
       securityScore: agent.securityRiskScore,
       hasCostData: true,
+      compositeScore: agent.compositeScore ?? Math.round(((agent.successRate * 100 + (100 - agent.securityRiskScore)) / 2) * 10) / 10,
     },
     basic: {
       dominantModel: agent.models?.[0]?.name ?? "—",
@@ -119,11 +128,12 @@ export function mockDigitalEmployeeProfile(agentName, days, hours, sessionScopeR
     },
     dimensions: agent.dimensions,
     radarScores: {
-      capability: 86,
+      capability: agent.compositeScore ?? 86,
       quality: Math.round(successPct),
       efficacy: agent.p95DurationMs > 40000 ? 62 : 83,
       cost: 78,
       security: Math.max(0, 100 - Math.round(Number(agent.securityRiskScore) || 0)),
+      composite: agent.compositeScore ?? Math.round(((agent.successRate * 100 + (100 - agent.securityRiskScore)) / 2) * 10) / 10,
     },
     tabs: {
       capability: {
@@ -587,16 +597,43 @@ export function mockDigitalEmployeeProfile(agentName, days, hours, sessionScopeR
       },
     },
     sessionsPreview: previewRows,
+    timelineRiskSummary: previewRows.reduce(
+      (acc, s) => {
+        acc.high += Number(s.riskHigh) || 0;
+        acc.medium += Number(s.riskMedium) || 0;
+        acc.low += Number(s.riskLow) || 0;
+        return acc;
+      },
+      { high: 0, medium: 0, low: 0 },
+    ),
     qualityDetails: {
       abortedRows: previewRows
         .filter((x) => x.abortedLastRun)
-        .map((x) => ({ sessionId: x.session_id, sessionKey: x.sessionKey, updatedAt: x.updatedAt, detail: "abortedLastRun=true", count: 1 })),
+        .map((x) => ({
+          sessionId: x.session_id,
+          sessionKey: x.sessionKey,
+          updatedAt: x.updatedAt,
+          detail: "abortedLastRun=true",
+          count: 1,
+        })),
       toolErrorRows: previewRows
         .filter((x) => (Number(x.toolErrorCount) || 0) > 0)
-        .map((x) => ({ sessionId: x.session_id, sessionKey: x.sessionKey, updatedAt: x.updatedAt, detail: `toolErrorCount=${x.toolErrorCount}`, count: x.toolErrorCount })),
+        .map((x) => ({
+          sessionId: x.session_id,
+          sessionKey: x.sessionKey,
+          updatedAt: x.updatedAt,
+          detail: `toolErrorCount=${x.toolErrorCount}`,
+          count: x.toolErrorCount,
+        })),
       execErrorRows: previewRows
         .filter((x) => (Number(x.execCommandErrorCount) || 0) > 0)
-        .map((x) => ({ sessionId: x.session_id, sessionKey: x.sessionKey, updatedAt: x.updatedAt, detail: `execCommandErrorCount=${x.execCommandErrorCount}`, count: x.execCommandErrorCount })),
+        .map((x) => ({
+          sessionId: x.session_id,
+          sessionKey: x.sessionKey,
+          updatedAt: x.updatedAt,
+          detail: `execCommandErrorCount=${x.execCommandErrorCount}`,
+          count: x.execCommandErrorCount,
+        })),
     },
     openclawHintsPresent: true,
   };
