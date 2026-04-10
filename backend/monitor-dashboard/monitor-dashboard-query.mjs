@@ -13,7 +13,7 @@ import {
   DIGITAL_EMPLOYEE_OVERVIEW_DEFAULT_DAYS,
   dedupeEmployeesBySessionKey,
   rowSessionKey,
-} from "../../frontend/utils/digitalEmployeeRows.js";
+} from "../../frontend/lib/digitalEmployeeRows.js";
 import { buildMonitorDigitalEmployeeOverview } from "./build-monitor-employee-overview.mjs";
 import {
   monitorCachedAuditDashboardMetrics,

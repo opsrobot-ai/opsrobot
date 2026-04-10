@@ -87,7 +87,7 @@ export default function MonitorDashboard() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 lg:grid-rows-1 gap-3 flex-[7] min-h-[450px]">
+      <div className="grid grid-cols-1 lg:grid-cols-4 lg:grid-rows-1 gap-3 flex-[7] min-h-[450px] z-50">
         <MonitorLeftColumn
           dailyTokens={otelData?.dailyTokens}
           instanceList={otelData?.instanceList}

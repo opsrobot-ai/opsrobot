@@ -17,7 +17,14 @@ import { mockSessionCostOptions } from "./data/session-cost-options.mjs";
 import { mockOtelOverview } from "./data/otel-overview.mjs";
 import { mockDigitalEmployeeOverview } from "./data/digital-employee-overview.mjs";
 import { mockDigitalEmployeeProfile } from "./data/digital-employee-profile.mjs";
-import { DIGITAL_EMPLOYEE_OVERVIEW_DEFAULT_DAYS } from "../frontend/utils/digitalEmployeeRows.js";
+import { mockMonitorDashboard } from "./data/monitor-dashboard.mjs";
+import {
+  mockMonitorSession,
+  mockMonitorSessionOverview,
+  mockMonitorSessionRiskSessions,
+  mockMonitorSessionTrend,
+} from "./data/monitor-session.mjs";
+import { DIGITAL_EMPLOYEE_OVERVIEW_DEFAULT_DAYS } from "../frontend/lib/digitalEmployeeRows.js";
 
 function sendJson(res, status, body) {
   res.statusCode = status;
@@ -169,6 +176,66 @@ export function handleMockRequest(url, res) {
       startTime: u.searchParams.get("startTime") || null,
       endTime: u.searchParams.get("endTime") || null,
     }));
+    return true;
+  }
+
+  // --- 驾驶舱：OTel 综合数据 ---
+  if (url.startsWith("/api/monitor-dashboard")) {
+    const u = new URL(url, "http://mock.local");
+    sendJson(
+      res,
+      200,
+      mockMonitorDashboard({
+        trendDays: Number(u.searchParams.get("trendDays") ?? "14"),
+        topLimit: Number(u.searchParams.get("topLimit") ?? "10"),
+      }),
+    );
+    return true;
+  }
+
+  // --- 驾驶舱：会话模块聚合 ---
+  if (url === "/api/monitor-session" || url.startsWith("/api/monitor-session?")) {
+    const u = new URL(url, "http://mock.local");
+    sendJson(
+      res,
+      200,
+      mockMonitorSession({
+        trendDays: Number(u.searchParams.get("trendDays") ?? "30"),
+        riskLimit: Number(u.searchParams.get("riskLimit") ?? "0"),
+      }),
+    );
+    return true;
+  }
+
+  // --- 驾驶舱：会话概览 ---
+  if (url.startsWith("/api/monitor-session-overview")) {
+    sendJson(res, 200, mockMonitorSessionOverview());
+    return true;
+  }
+
+  // --- 驾驶舱：风险会话 ---
+  if (url.startsWith("/api/monitor-session-risk")) {
+    const u = new URL(url, "http://mock.local");
+    sendJson(
+      res,
+      200,
+      mockMonitorSessionRiskSessions({
+        riskLimit: Number(u.searchParams.get("riskLimit") ?? "0"),
+      }),
+    );
+    return true;
+  }
+
+  // --- 驾驶舱：会话趋势 ---
+  if (url.startsWith("/api/monitor-session-trend")) {
+    const u = new URL(url, "http://mock.local");
+    sendJson(
+      res,
+      200,
+      mockMonitorSessionTrend({
+        trendDays: Number(u.searchParams.get("trendDays") ?? "30"),
+      }),
+    );
     return true;
   }
 

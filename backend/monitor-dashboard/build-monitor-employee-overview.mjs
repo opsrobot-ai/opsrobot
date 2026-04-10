@@ -3,7 +3,7 @@
  * 但会话拉取走 monitor-doris-cache（不修改 digital-employee 模块实现）。
  */
 import { mapAgentSessionRows } from "../../frontend/lib/sessionAudit.js";
-import { DIGITAL_EMPLOYEE_OVERVIEW_DEFAULT_DAYS } from "../../frontend/utils/digitalEmployeeRows.js";
+import { DIGITAL_EMPLOYEE_OVERVIEW_DEFAULT_DAYS } from "../../frontend/lib/digitalEmployeeRows.js";
 import { buildOverviewPayload } from "../digital-employee/digital-employee-overview-builder.mjs";
 import { monitorCachedAgentSessionsWithLogTokens } from "./monitor-doris-cache.mjs";
 
