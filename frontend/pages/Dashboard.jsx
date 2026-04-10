@@ -14,6 +14,7 @@ import OpenClawInstance from "./OpenClawInstance.jsx";
 import InstanceMonitoring from "./InstanceMonitoring.jsx";
 import SessionAudit from "./SessionAudit.jsx";
 import AuditOverview from "./AuditOverview.jsx";
+import MonitorDashboard from "./monitor-dashboard/index.jsx";
 
 const PAGE_META_KEYS = {
   panorama: { title: "page.panorama.title", subtitle: "page.panorama.subtitle" },
@@ -23,6 +24,7 @@ const PAGE_META_KEYS = {
   audit: { title: "page.audit.title", subtitle: "page.audit.subtitle" },
   "audit-overview": { title: "page.auditOverview.title", subtitle: "page.auditOverview.subtitle" },
   "session-audit": { title: "page.sessionAudit.title", subtitle: "page.sessionAudit.subtitle" },
+  "monitor-dashboard": { title: "page.monitorDashboard.title", subtitle: "page.monitorDashboard.subtitle" },
   traceability: { title: "page.traceability.title", subtitle: "page.traceability.subtitle" },
   inspection: { title: "page.inspection.title", subtitle: "page.inspection.subtitle" },
   "cost-overview": { title: "page.costOverview.title", subtitle: "page.costOverview.subtitle" },
@@ -377,7 +379,7 @@ export default function Dashboard() {
       >
         <div className="flex h-16 items-center gap-3 border-b border-gray-100 px-6 dark:border-gray-800">
           <img
-            src="/logo.png"
+            src="/logo.svg"
             alt="opsRobot"
             className="h-9 w-9 rounded-lg object-contain"
           />

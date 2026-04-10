@@ -2,6 +2,8 @@
 
 > English | [中文](./README_zh.md)
 
+![Instance-monitoring](./docs/pictures/Instance-monitoring.png)
+
 **OpenClaw Observability Platform**, developed based on the KWeaver Core framework, uses OTel protocol and eBPF technology for full-link tracing and monitoring of AI Agents. It provides rapid fault diagnosis, security compliance management, and lean computing operations capabilities to ensure high-quality growth of AI-powered businesses.
 
 ## Core Features & Business Value
@@ -198,6 +200,15 @@ vector --config vector.yaml
 - View collected data in the opsRobot product interface: http://localhost:3000
 
 ---
+
+## More Screenshots
+
+![Digital-Employee-Overview](./docs/pictures/Digital-Emmployee-Overview.png)
+![Digital-Employee-Overview2](./docs/pictures/Digital-Employee-Overview2.png)
+![Digital-Employee-Portrait-Capability](./docs/pictures/Digital-Employee-Portrait-Capability.png)
+![Digital-Employee-Portrait-Security](./docs/pictures/Digital-Employee-Portrait-Security.png)
+![Digital-Employee-Portrait](./docs/pictures/Digital-Employee-Portrait.png)
+
 
 ## Version Compatibility
 
