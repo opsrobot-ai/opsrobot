@@ -1,5 +1,8 @@
 # OpenClaw 可观测性平台
 
+![概览页](./docs/pictures/概览页.png)
+![实例监控](./docs/pictures/实例监控.png)
+
 **OpenClaw 可观测性平台**，基于 KWeaver Core 框架开发，使用 OTel 协议、eBPF 技术对智能体进行全链路追踪与监管，提供故障快速排查、安全合规管控及算力精益运营的管理能力，护航 AI 赋能业务的高质量增长。
 
 ## 核心特性与业务价值
@@ -196,11 +199,19 @@ vector --config vector.yaml
 * 在 OpenClaw 界面进行对话互动
 * 在 opsRobot 产品界面中查看采集数据：http://localhost:3000
 
+## 更多截图
+会话溯源分析：
+![溯源分析](./docs/pictures/溯源分析.png)
 
+Token 消耗看板：
+![Token消耗](./docs/pictures/Token消耗.png)
 
-
-
-
+数字员工模块（概览与画像）：
+![Digital-Employee-Overview](./docs/pictures/Digital-Emmployee-Overview.png)
+![Digital-Employee-Overview2](./docs/pictures/Digital-Employee-Overview2.png)
+![Digital-Employee-Portrait-Capability](./docs/pictures/Digital-Employee-Portrait-Capability.png)
+![Digital-Employee-Portrait-Security](./docs/pictures/Digital-Employee-Portrait-Security.png)
+![Digital-Employee-Portrait](./docs/pictures/Digital-Employee-Portrait.png)
 
 
 ## 版本兼容性
