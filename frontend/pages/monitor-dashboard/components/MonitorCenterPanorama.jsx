@@ -1,13 +1,17 @@
 import centerBg from "../images/centerpic4.png";
 import centerTopBg from "../images/centertopbg1.png";
-import MonitorPanel from "./MonitorPanel.jsx";
 
-export default function MonitorCenterPanorama() {
+export default function MonitorCenterPanorama({ kpis, loading }) {
+  const agentTotal = Number(kpis?.agentTotal) || 0;
+  const userTotal = Number(kpis?.userTotal) || 0;
+  const sourceTerminals = Number(kpis?.sourceTerminals) || 0;
+  const tokenTotal = kpis?.tokenTotal || "--";
+
   const cards = [
-    { name: "Agent总数", value: "128" },
-    { name: "用户总数", value: "4592" },
-    { name: "来源终端", value: "12" },
-    { name: "Token消耗", value: "1.4B" }
+    { name: "Agent总数", value: loading ? "--" : String(agentTotal) },
+    { name: "用户总数", value: loading ? "--" : String(userTotal) },
+    { name: "来源终端", value: loading ? "--" : String(sourceTerminals) },
+    { name: "Token消耗", value: loading ? "--" : tokenTotal }
   ];
 
   return (

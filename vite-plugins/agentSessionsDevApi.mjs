@@ -15,7 +15,10 @@ import {
 } from "../backend/log-search/log-search-query.mjs";
 import { queryConfigAuditLogs, queryConfigAuditStats } from "../backend/security-audit/config-audit-query.mjs";
 import { queryOtelOverviewData } from "../backend/otel-metrics/otel-overview-query.mjs";
-import { queryMonitorDashboard } from "../backend/monitor-dashboard/monitor-dashboard-query.mjs";
+import {
+  queryMonitorDashboard,
+  queryMonitorDashboardSourceTerminalsByWindow,
+} from "../backend/monitor-dashboard/monitor-dashboard-query.mjs";
 import {
   queryMonitorSession,
   queryMonitorSessionOverview,
@@ -322,6 +325,19 @@ export function agentSessionsDevApi() {
             sendJson(res, 200, data);
           } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
+            sendJson(res, 500, { error: msg });
+          }
+          return;
+        }
+
+        if (url.startsWith("/api/monitor-dashboard-source-terminals")) {
+          try {
+            const u = new URL(url, "http://vite.local");
+            const window = u.searchParams.get("window") ?? "month";
+            const data = await queryMonitorDashboardSourceTerminalsByWindow(window);
+            sendJson(res, 200, data);
+          } catch (e) {
+            const msg = e instanceof Error ? `${e.message}\n${e.stack}` : String(e);
             sendJson(res, 500, { error: msg });
           }
           return;

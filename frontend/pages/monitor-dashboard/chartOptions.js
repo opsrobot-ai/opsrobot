@@ -1,5 +1,35 @@
 import * as echarts from "echarts";
 
+const MONITOR_TOOLTIP_STYLE = {
+  backgroundColor: "rgba(6, 24, 43, 0.96)",
+  borderColor: "#1f547f",
+  borderWidth: 1,
+  textStyle: { color: "#d7ecff", fontSize: 12 },
+  padding: [8, 10],
+  extraCssText: "box-shadow:0 4px 12px rgba(0,0,0,0.45);",
+  confine: true,
+  enterable: false,
+  position: (point, _params, _dom, _rect, size) => {
+    const [x, y] = point;
+    const viewW = size?.viewSize?.[0] || 0;
+    const viewH = size?.viewSize?.[1] || 0;
+    const boxW = size?.contentSize?.[0] || 0;
+    const boxH = size?.contentSize?.[1] || 0;
+    const gap = 12;
+
+    let left = x + gap;
+    let top = y + gap;
+
+    if (left + boxW > viewW - 4) left = x - boxW - gap;
+    if (left < 4) left = 4;
+
+    if (top + boxH > viewH - 4) top = y - boxH - gap;
+    if (top < 4) top = 4;
+
+    return [left, top];
+  },
+};
+
 export function getDailyTokenOption(dailyTokenData = []) {
   const list = Array.isArray(dailyTokenData) ? dailyTokenData : [];
   const xData = list.map((d) => d?.day || "");
@@ -53,10 +83,32 @@ export function getDailyTokenOption(dailyTokenData = []) {
   };
 }
 
-export function getTopAgentOption() {
+export function getTopAgentOption(topInstances = []) {
+  const list = Array.isArray(topInstances) ? topInstances : [];
+  const ranked = [...list]
+    .map((r) => ({
+      name: String(r?.name || "未命名"),
+      value: Number(r?.value) || 0,
+    }))
+    .sort((a, b) => a.value - b.value);
+  const yData = ranked.map((r) => r.name);
+  const xData = ranked.map((r) => r.value);
+
   return {
     grid: { top: 10, right: 20, bottom: 10, left: 70 },
-    tooltip: { trigger: "axis" },
+    tooltip: {
+      ...MONITOR_TOOLTIP_STYLE,
+      trigger: "axis",
+      axisPointer: { type: "shadow" },
+      formatter: (params) => {
+        const p = Array.isArray(params) && params.length > 0 ? params[0] : null;
+        if (!p) return "";
+        const fullName = String(p.name || "");
+        const value = Number(p.value) || 0;
+        const marker = String(p.marker || "");
+        return `${fullName}<br/>${marker} Token: ${value.toLocaleString("zh-CN")}`;
+      },
+    },
     xAxis: {
       type: "value",
       splitLine: { show: false },
@@ -64,16 +116,23 @@ export function getTopAgentOption() {
     },
     yAxis: {
       type: "category",
-      data: ["销售复盘灵", "数据分析师", "客服助手-小云", "研发助手-Co..."],
+      data: yData,
+      triggerEvent: true,
       axisLine: { show: false },
       axisTick: { show: false },
-      axisLabel: { color: "#8fb1c6", fontSize: 11 },
+      axisLabel: {
+        color: "#8fb1c6",
+        fontSize: 11,
+        width: 120,
+        overflow: "truncate",
+        ellipsis: "...",
+      },
     },
     series: [
       {
         type: "bar",
         barWidth: 6,
-        data: [35, 60, 85, 100],
+        data: xData,
         itemStyle: {
           color: new echarts.graphic.LinearGradient(1, 0, 0, 0, [
             { offset: 0, color: "#00f0ff" },
@@ -90,7 +149,17 @@ export function getTopAgentOption() {
 
 export function getDonutOption(data, colors) {
   return {
-    tooltip: { trigger: "item" },
+    tooltip: {
+      ...MONITOR_TOOLTIP_STYLE,
+      trigger: "item",
+      formatter: (p) => {
+        const name = String(p?.name ?? "");
+        const value = Number(p?.value) || 0;
+        const percent = Number(p?.percent) || 0;
+        const marker = String(p?.marker || "");
+        return `${name}<br/>${marker} 占比: ${percent.toFixed(1)}%<br/>${marker} 数值: ${value.toLocaleString("zh-CN")}`;
+      },
+    },
     series: [
       {
         type: "pie",
@@ -125,19 +194,27 @@ export function getDonutOption(data, colors) {
 
 export function getTrendOption(trendData = []) {
   const list = Array.isArray(trendData) ? trendData : [];
-  const xData = list.length > 0
-    ? list.map((d) => d?.label || String(d?.day || "").slice(5, 10) || "")
-    : ["03-21", "03-22", "03-23", "03-24", "03-25", "03-26", "03-27", "03-28"];
-  const yData = list.length > 0
-    ? list.map((d) => Number(d?.value) || 0)
-    : [3, 4, 3.5, 5, 4.5, 6, 8, 8.098];
+  const xData = list.map((d) => d?.label || String(d?.day || "").slice(5, 10) || "");
+  const yData = list.map((d) => Number(d?.value) || 0);
   const yMaxRaw = yData.length > 0 ? Math.max(...yData) : 0;
   const yMax = yMaxRaw > 0 ? Math.ceil(yMaxRaw * 1.2) : 10;
   const yInterval = Math.max(1, Math.ceil(yMax / 4));
 
   return {
     grid: { top: 30, right: 10, bottom: 20, left: 35 },
-    tooltip: { trigger: "axis" },
+    tooltip: {
+      ...MONITOR_TOOLTIP_STYLE,
+      trigger: "axis",
+      axisPointer: { type: "line", lineStyle: { color: "#1f547f" } },
+      formatter: (params) => {
+        const p = Array.isArray(params) && params.length > 0 ? params[0] : null;
+        if (!p) return "";
+        const label = String(p.axisValueLabel || p.name || "");
+        const value = Number(p.value) || 0;
+        const marker = String(p.marker || "");
+        return `${label}<br/>${marker} 会话数: ${value.toLocaleString("zh-CN")}`;
+      },
+    },
     xAxis: {
       type: "category",
       data: xData,

@@ -8,6 +8,8 @@
 import mysql from "mysql2/promise";
 import { getDorisConfig } from "../agentSessionsQuery.mjs";
 import { queryCostOverviewSnapshot } from "../cost-analysis/cost-overview-query.mjs";
+import { queryAuditDashboardMetrics } from "../security-audit/audit-dashboard-query.mjs";
+import { buildDigitalEmployeeOverview } from "../digital-employee/digital-employee-service.mjs";
 
 function normalizeRow(row) {
   if (!row || typeof row !== "object") return row;
@@ -143,6 +145,35 @@ async function queryTodayKPIs(conn, todayStartIso, nowIso) {
   };
 }
 
+export async function queryMonitorDashboardSourceTerminals() {
+  return queryMonitorDashboardSourceTerminalsByWindow("month");
+}
+
+export async function queryMonitorDashboardSourceTerminalsByWindow(window = "month") {
+  const snapshot = await queryAuditDashboardMetrics();
+  const windows = snapshot?.windows || {};
+  const safeWindow = ["today", "week", "month"].includes(window) ? window : "month";
+  const row = windows[safeWindow] || {};
+  const bounds = snapshot?.bounds || {};
+  const now = Number(snapshot?.generatedAt) || Date.now();
+
+  return {
+    generatedAt: new Date(now).toISOString(),
+    window: {
+      key: safeWindow,
+      start:
+        safeWindow === "today"
+          ? Number(bounds.todayStart) || null
+          : safeWindow === "week"
+            ? Number(bounds.weekStart) || null
+            : Number(bounds.monthStart) || null,
+      end: now,
+    },
+    sourceTerminals: Number(row.device_connections) || 0,
+    userAccess: Number(row.user_access) || 0,
+  };
+}
+
 function queryDailyTokenTrendFromCostOverview(snapshot) {
   const trend = Array.isArray(snapshot?.trend14d) ? snapshot.trend14d : [];
   return trend.map((r) => ({
@@ -199,6 +230,37 @@ async function queryInstanceList(conn, h24AgoIso, nowIso) {
   });
 }
 
+function queryEmployeeListFromOverview(overviewPayload) {
+  const list = Array.isArray(overviewPayload?.agentsAggregated) ? overviewPayload.agentsAggregated : [];
+  const now = Date.now();
+  return list
+    .map((row) => {
+      const updatedAt = Number(row?.lastUpdatedAt) || 0;
+      const minutesAgo = updatedAt > 0 ? (now - updatedAt) / 60000 : Number.POSITIVE_INFINITY;
+      return {
+        id: String(row?.employeeKey || row?.sessionKey || row?.sessionId || ""),
+        name: String(row?.displayLabel || row?.agentName || "未命名"),
+        status: minutesAgo < 10 ? "在线" : "离线",
+        sessions: Number(row?.sessionCount) || 0,
+        tokenRaw: Number(row?.totalTokens) || 0,
+        token: formatTokenCount(Number(row?.totalTokens) || 0),
+      };
+    })
+    .sort((a, b) => b.tokenRaw - a.tokenRaw)
+    .slice(0, 30);
+}
+
+function queryTopInstancesFromOverview(overviewPayload, limit) {
+  const list = Array.isArray(overviewPayload?.agentsAggregated) ? overviewPayload.agentsAggregated : [];
+  return list
+    .map((row) => ({
+      name: String(row?.displayLabel || row?.agentName || "未命名"),
+      value: Number(row?.totalTokens) || 0,
+    }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, Math.max(1, Number(limit) || 10));
+}
+
 function queryTokenDistributionFromCostOverview(snapshot) {
   // 口径对齐「算力成本概览」：最近30天的大模型消耗占比 + 输入/输出占比
   const modelShare = Array.isArray(snapshot?.modelShare) ? snapshot.modelShare : [];
@@ -219,35 +281,6 @@ function queryTokenDistributionFromCostOverview(snapshot) {
   return { byModel, byType };
 }
 
-async function queryTopInstances(conn, d7AgoIso, nowIso, limit) {
-  const [rows] = await conn.query(
-    `SELECT
-       COALESCE(
-         get_json_string(resource_attributes, '$.host.name'),
-         service_name,
-         service_instance_id,
-         'unknown'
-       ) AS agent_name,
-       service_instance_id,
-       COALESCE(SUM(value), 0) AS total_tokens
-     FROM \`opsRobot\`.\`otel_metrics_sum\`
-     WHERE metric_name = 'openclaw.tokens'
-       AND get_json_string(attributes, '$.openclaw.token') = 'total'
-       AND timestamp >= ? AND timestamp <= ?
-     GROUP BY
-       get_json_string(resource_attributes, '$.host.name'),
-       service_name,
-       service_instance_id
-     ORDER BY total_tokens DESC
-     LIMIT ?`,
-    [d7AgoIso, nowIso, limit]
-  );
-  return rows.map((r) => ({
-    name: r.agent_name || r.service_instance_id || "unknown",
-    value: Number(r.total_tokens) || 0,
-  }));
-}
-
 /**
  * 监控大屏 OTel 主查询入口
  * @param {{ trendDays?: number; topLimit?: number }} opts
@@ -259,26 +292,35 @@ export async function queryMonitorDashboard(opts = {}) {
   const now = new Date();
   const todayStart = new Date(now);
   todayStart.setHours(0, 0, 0, 0);
-  const h24Ago = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-  const d7Ago = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
   const todayStartIso = formatDt(todayStart);
   const nowIso = formatDt(now);
-  const h24AgoIso = formatDt(h24Ago);
-  const d7AgoIso = formatDt(d7Ago);
 
   const conn = await getConnection();
   try {
     const kpis = await queryTodayKPIs(conn, todayStartIso, nowIso);
+    const sourceTerminalSnapshot = await queryMonitorDashboardSourceTerminalsByWindow("month");
     const costOverviewSnapshot = await queryCostOverviewSnapshot({ trendDays: 30 });
+    const monthTokenTotal = Number(costOverviewSnapshot?.cards?.month?.totalTokens) || 0;
+    const monthAgentTotal = Array.isArray(costOverviewSnapshot?.agentTokenDetail)
+      ? costOverviewSnapshot.agentTokenDetail.length
+      : 0;
     const dailyTokens = queryDailyTokenTrendFromCostOverview(costOverviewSnapshot);
-    const instanceList = await queryInstanceList(conn, h24AgoIso, nowIso);
+    const employeeOverviewSnapshot = await buildDigitalEmployeeOverview("30");
+    const instanceList = queryEmployeeListFromOverview(employeeOverviewSnapshot);
+    const topInstances = queryTopInstancesFromOverview(employeeOverviewSnapshot, topLimit);
     const tokenDistribution = queryTokenDistributionFromCostOverview(costOverviewSnapshot);
-    const topInstances = await queryTopInstances(conn, d7AgoIso, nowIso, topLimit);
 
     return {
       generatedAt: now.toISOString(),
-      kpis,
+      kpis: {
+        ...kpis,
+        agentTotal: monthAgentTotal,
+        tokenTotalRaw: monthTokenTotal,
+        tokenTotal: formatTokenCount(monthTokenTotal),
+        userTotal: sourceTerminalSnapshot.userAccess,
+        sourceTerminals: sourceTerminalSnapshot.sourceTerminals,
+      },
       dailyTokens,
       instanceList,
       tokenDistribution,

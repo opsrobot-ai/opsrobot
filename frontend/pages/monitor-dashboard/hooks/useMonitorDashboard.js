@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 
+const MIN_LOADING_MS = 600;
+
 /**
  * 大屏 OTel 指标数据 Hook
  * 数据源：/api/monitor-dashboard
@@ -16,11 +18,17 @@ export function useMonitorDashboard({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const abortRef = useRef(null);
+  const reqSeqRef = useRef(0);
 
   const fetchData = useCallback(async () => {
+    reqSeqRef.current += 1;
+    const reqSeq = reqSeqRef.current;
+
+    const startAt = Date.now();
     if (abortRef.current) abortRef.current.abort();
     const ctrl = new AbortController();
     abortRef.current = ctrl;
+    setLoading(true);
 
     try {
       const params = new URLSearchParams({
@@ -33,19 +41,26 @@ export function useMonitorDashboard({
         throw new Error(body.error || `HTTP ${res.status}`);
       }
       const json = await res.json();
+      if (reqSeq !== reqSeqRef.current) return;
       setData(json);
       setError(null);
     } catch (e) {
+      if (reqSeq !== reqSeqRef.current) return;
       if (e.name !== "AbortError") {
         setError(e.message || String(e));
       }
     } finally {
+      if (reqSeq !== reqSeqRef.current) return;
+      const elapsed = Date.now() - startAt;
+      if (elapsed < MIN_LOADING_MS) {
+        await new Promise((resolve) => setTimeout(resolve, MIN_LOADING_MS - elapsed));
+      }
+      if (reqSeq !== reqSeqRef.current) return;
       setLoading(false);
     }
   }, [trendDays, topLimit]);
 
   useEffect(() => {
-    setLoading(true);
     fetchData();
     const timer = setInterval(fetchData, refreshInterval);
     return () => {

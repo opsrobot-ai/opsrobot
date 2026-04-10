@@ -13,13 +13,13 @@ export default function MonitorDashboard() {
   const { containerRef, isFullscreen, toggleFullscreen } = useMonitorFullscreen();
 
   // OTel 指标数据（实例、Token、成本等）
-  const { data: otelData, loading: otelLoading } = useMonitorDashboard({
+  const { data: otelData, loading: otelLoading, error: otelError } = useMonitorDashboard({
     trendDays: 14,
     topLimit: 10,
   });
 
   // 会话模块数据（与行为审计概览口径一致）
-  const { data: sessionData, loading: sessionLoading } = useMonitorSession({
+  const { data: sessionData, loading: sessionLoading, error: sessionError } = useMonitorSession({
     trendDays: 7,
     riskLimit: 0,
   });
@@ -91,6 +91,7 @@ export default function MonitorDashboard() {
           dailyTokens={otelData?.dailyTokens}
           instanceList={otelData?.instanceList}
           loading={otelLoading}
+          error={otelError}
         />
         <MonitorCenterPanorama kpis={otelData?.kpis} loading={otelLoading} />
         {/* 右列：会话概览 + 风险会话 → 使用 agent_sessions 数据源 */}
@@ -100,6 +101,7 @@ export default function MonitorDashboard() {
           riskSessionsTotal={sessionData?.riskSessionsTotal}
           loadingOverview={sessionLoading?.overview}
           loadingRisk={sessionLoading?.risk}
+          errorRisk={sessionError?.risk}
         />
       </div>
 
@@ -109,7 +111,10 @@ export default function MonitorDashboard() {
           tokenDistribution={otelData?.tokenDistribution}
           sessionTrend={sessionData?.sessionTrend}
           sessionTrendTotal={sessionData?.sessionTrendTotal}
+          loadingTop={otelLoading}
+          loadingDistribution={otelLoading}
           loadingTrend={sessionLoading?.trend}
+          errorTop={otelError}
         />
       </div>
     </div>

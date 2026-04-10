@@ -27,7 +27,10 @@ import {
   querySessionCostDetail,
   querySessionCostOptions,
 } from "./cost-analysis/cost-overview-2-query.mjs";
-import { queryMonitorDashboard } from "./monitor-dashboard/monitor-dashboard-query.mjs";
+import {
+  queryMonitorDashboard,
+  queryMonitorDashboardSourceTerminalsByWindow,
+} from "./monitor-dashboard/monitor-dashboard-query.mjs";
 import {
   queryMonitorSession,
   queryMonitorSessionOverview,
@@ -326,6 +329,20 @@ const server = http.createServer(async (req, res) => {
         startIso: u.searchParams.get("startIso") ?? undefined,
         endIso: u.searchParams.get("endIso") ?? undefined,
       });
+      sendJson(res, 200, data);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      sendJson(res, 500, { error: msg });
+    }
+    return;
+  }
+
+  // 监控大屏 — 来源终端（口径对齐行为审计概览）
+  if (url.startsWith("/api/monitor-dashboard-source-terminals")) {
+    try {
+      const u = new URL(url, "http://127.0.0.1");
+      const window = u.searchParams.get("window") ?? "month";
+      const data = await queryMonitorDashboardSourceTerminalsByWindow(window);
       sendJson(res, 200, data);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
