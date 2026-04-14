@@ -11,6 +11,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@ant-design/x": "^2.5.0",
+    "@ant-design/x-markdown": "^2.5.0",
+    "antd": "^6.3.5",
     "echarts": "^6.0.0",
     "echarts-for-react": "^3.0.6",
     "mysql2": "^3.20.0",

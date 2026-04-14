@@ -12,6 +12,7 @@ import FullChainTraceability from "./FullChainTraceability.jsx";
 import ConfigChange from "./ConfigChange.jsx";
 import SessionAudit from "./SessionAudit.jsx";
 import AuditOverview from "./AuditOverview.jsx";
+import SreAgent from "./SreAgent.jsx";
 
 const PAGE_META = {
   panorama: { title: "数据总览", subtitle: "关键指标与订单一览 · 实时更新" },
@@ -32,6 +33,7 @@ const PAGE_META = {
   "cost-overview-2": { title: "会话成本明细", subtitle: "Agent、用户、Gateway、大模型多维过滤" },
   "agent-cost-detail": { title: "实例成本明细", subtitle: "总消耗、单任务均值、调用量与成功率" },
   "llm-cost": { title: "模型成本明细", subtitle: "按模型维度的 Token 与费用" },
+  "sre-agent": { title: "SRE Agent", subtitle: "智能运维助手 · K8s 巡检 / 监控查询 / 故障诊断" },
 };
 
 const NAV = [
@@ -65,6 +67,7 @@ const NAV = [
       { id: "llm-cost", label: "模型成本明细" },
     ],
   },
+  { id: "sre-agent", label: "SRE Agent", icon: "robot" },
 ];
 
 const STATS = [
@@ -580,6 +583,8 @@ export default function Dashboard() {
             <SessionAudit setHeaderExtra={setHeaderExtra} />
           ) : activeNav === "traceability" ? (
             <FullChainTraceability setHeaderExtra={setHeaderExtra} />
+          ) : activeNav === "sre-agent" ? (
+            <SreAgent />
           ) : (
             <>
               <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

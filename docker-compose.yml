@@ -40,6 +40,10 @@ services:
       - DORIS_PASSWORD=${DORIS_PASSWORD:-}
       - DORIS_DATABASE=${DORIS_DATABASE:-opsRobot}
       - PORT=8787
+      - OPENCLAW_API_URL=${OPENCLAW_API_URL:-http://host.docker.internal:11434}
+      - OPENCLAW_AGENT_ID=${OPENCLAW_AGENT_ID:-sre-agent}
+      - OPENCLAW_API_KEY=${OPENCLAW_API_KEY:-}
+      - OPENCLAW_MODEL=${OPENCLAW_MODEL:-}
     depends_on:
       doris:
         condition: service_healthy

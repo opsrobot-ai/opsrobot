@@ -45,4 +45,40 @@
   *:focus {
     outline: none;
   }
+
+  /* SRE Agent — Pod 状态闪烁动画 */
+  .sre-blink {
+    animation: sre-blink-kf 1.2s ease-in-out infinite;
+  }
+  .sre-blink-border {
+    animation: sre-blink-border-kf 1.5s ease-in-out infinite;
+  }
+}
+
+@keyframes sre-blink-kf {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.3; }
+}
+@keyframes sre-blink-border-kf {
+  0%, 100% { border-color: rgb(253 164 175); }
+  50%      { border-color: rgb(244 63 94); }
+}
+
+/* ─── @ant-design/x-markdown in SRE chat bubbles ─── */
+.sre-markdown .x-markdown {
+  --font-size: 13px;
+  color: inherit;
+}
+.sre-markdown .x-markdown p:last-child {
+  margin-bottom: 0;
+}
+.dark .sre-markdown .x-markdown pre {
+  background: rgba(0, 0, 0, 0.35);
+}
+.sre-markdown .x-markdown a {
+  color: rgb(59 130 246);
+}
+.sre-markdown .x-markdown img {
+  max-width: 100%;
+  border-radius: 6px;
 }

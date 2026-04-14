@@ -104,6 +104,16 @@ export default function Icon({ name, className = "h-5 w-5" }) {
           <path d="M10 8l4 4-4 4" />
         </svg>
       );
+    case "robot":
+      return (
+        <svg className={common} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21" />
+          <rect x="5" y="6" width="14" height="12" rx="2" strokeLinecap="round" strokeLinejoin="round" />
+          <circle cx="9.5" cy="11" r="1" fill="currentColor" stroke="none" />
+          <circle cx="14.5" cy="11" r="1" fill="currentColor" stroke="none" />
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9.5 14.5h5" />
+        </svg>
+      );
     default:
       return null;
   }
