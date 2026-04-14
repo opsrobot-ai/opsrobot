@@ -14,6 +14,7 @@ import OpenClawInstance from "./OpenClawInstance.jsx";
 import InstanceMonitoring from "./InstanceMonitoring.jsx";
 import SessionAudit from "./SessionAudit.jsx";
 import AuditOverview from "./AuditOverview.jsx";
+import LogSearch from "./LogSearch.jsx";
 import MonitorDashboard from "./monitor-dashboard/index.jsx";
 
 const PAGE_META_KEYS = {
@@ -24,6 +25,7 @@ const PAGE_META_KEYS = {
   audit: { title: "page.audit.title", subtitle: "page.audit.subtitle" },
   "audit-overview": { title: "page.auditOverview.title", subtitle: "page.auditOverview.subtitle" },
   "session-audit": { title: "page.sessionAudit.title", subtitle: "page.sessionAudit.subtitle" },
+  "log-search": { title: "page.logSearch.title", subtitle: "page.logSearch.subtitle" },
   "monitor-dashboard": { title: "page.monitorDashboard.title", subtitle: "page.monitorDashboard.subtitle" },
   traceability: { title: "page.traceability.title", subtitle: "page.traceability.subtitle" },
   inspection: { title: "page.inspection.title", subtitle: "page.inspection.subtitle" },
@@ -54,6 +56,7 @@ const NAV_KEYS = [
     children: [
       { id: "audit-overview", labelKey: "nav.auditOverview" },
       { id: "session-audit", labelKey: "nav.sessionAudit" },
+      { id: "log-search", labelKey: "nav.logSearch" },
     ],
   },
   {
@@ -287,6 +290,7 @@ export default function Dashboard() {
   const setActiveNav = (id) => {
     setActiveNavRaw(id);
     localStorage.setItem("nav-active", id);
+    if (id === "log-search") setSidebarCollapsed(true);
   };
   // 数字员工概览「查看画像」等跨页跳转（CustomEvent），版本 1.0.1
   useEffect(() => {
@@ -541,7 +545,7 @@ export default function Dashboard() {
       <div className={[
         "relative flex min-h-0 w-0 flex-1 flex-col transition-[padding-left] duration-200"
       ].join(" ")}>
-        <header className="relative z-20 flex h-16 shrink-0 items-center justify-between gap-4 border-b border-gray-200/80 bg-white/90 px-4 backdrop-blur-md dark:border-gray-800 dark:bg-gray-950/90 sm:px-6 lg:px-8">
+        <header className="relative z-30 flex h-16 shrink-0 items-center justify-between gap-4 border-b border-gray-200/80 bg-white/90 px-4 backdrop-blur-md dark:border-gray-800 dark:bg-gray-950/90 sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
             <button
               type="button"
@@ -597,7 +601,13 @@ export default function Dashboard() {
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto p-6">
+        <main
+          className={
+            activeNav === "log-search"
+              ? "relative z-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-0"
+              : "relative z-0 flex-1 overflow-y-auto p-6"
+          }
+        >
           {activeNav === "openclaw-instance" ? (
             <OpenClawInstance />
           ) : activeNav === "instance-monitoring" ? (
@@ -616,6 +626,8 @@ export default function Dashboard() {
             <AuditOverview />
           ) : activeNav === "session-audit" ? (
             <SessionAudit setHeaderExtra={setHeaderExtra} />
+          ) : activeNav === "log-search" ? (
+            <LogSearch />
           ) : activeNav === "traceability" ? (
             <FullChainTraceability setHeaderExtra={setHeaderExtra} />
           ) : (
