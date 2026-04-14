@@ -2,6 +2,7 @@ import {
   queryAgentSessionsLogsRaw,
   queryAgentSessionsRawWithLogTokens,
 } from "../backend/agentSessionsQuery.mjs";
+import { handleSreAgentMiddleware, handleSreAgentActionMiddleware, handleListAgentsMiddleware, isOpenClawAgentsListPath } from "../backend/sre-agent/sre-agent-handler.mjs";
 import { queryAuditDashboardMetrics } from "../backend/security-audit/audit-dashboard-query.mjs";
 import { queryCostOverviewSnapshot } from "../backend/cost-analysis/cost-overview-query.mjs";
 import {
@@ -38,6 +39,14 @@ function sendJson(res, status, body) {
   res.end(typeof body === "string" ? body : JSON.stringify(body));
 }
 
+/** Connect/Vite 下 req.url 常带 ?query；须用 pathname 匹配路由 */
+function requestPathname(raw) {
+  const u = raw || "";
+  const q = u.indexOf("?");
+  const p = q >= 0 ? u.slice(0, q) : u;
+  return p.length > 1 && p.endsWith("/") ? p.slice(0, -1) : p;
+}
+
 /**
  * 开发环境：挂载
  * - GET /api/agent-sessions-audit-overview — 两表聚合概览
@@ -50,7 +59,8 @@ function sendJson(res, status, body) {
  * - GET /api/llm-cost-detail?startDay=&endDay=
  * - GET /api/session-cost-detail?startDay=&endDay=
  * - GET /api/session-cost-options?startDay=&endDay=
-* - GET /api/digital-employees/overview?days=
+ * - GET /api/openclaw/agents | GET /api/sre-agent/agents — OpenClaw Agent 列表（JSON）
+ * - GET /api/digital-employees/overview?days=
  * - GET /api/digital-employees/profile?agentName=&days=&sessionKey=
  */
 export function agentSessionsDevApi() {
@@ -63,6 +73,24 @@ export function agentSessionsDevApi() {
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
         const url = req.url || "";
+        const path = requestPathname(url);
+
+        // SRE Agent endpoints — 独立于 Mock/Live 模式
+        if (isOpenClawAgentsListPath(path) && req.method === "GET") {
+          void handleListAgentsMiddleware(req, res).catch((e) => {
+            if (!res.headersSent && !res.writableEnded) {
+              sendJson(res, 500, { agents: [], error: String(e?.message || e) });
+            }
+          });
+          return;
+        }
+        if (path === "/api/sre-agent/action" && req.method === "POST") {
+          return handleSreAgentActionMiddleware(req, res);
+        }
+        if (path.startsWith("/api/sre-agent") && req.method === "POST") {
+          return handleSreAgentMiddleware(req, res);
+        }
+
         if (req.method !== "GET") return next();
 
         // Mock 模式：使用静态数据，无需数据库

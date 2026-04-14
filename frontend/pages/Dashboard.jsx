@@ -14,8 +14,14 @@ import OpenClawInstance from "./OpenClawInstance.jsx";
 import InstanceMonitoring from "./InstanceMonitoring.jsx";
 import SessionAudit from "./SessionAudit.jsx";
 import AuditOverview from "./AuditOverview.jsx";
+import SreAgent from "./SreAgent.jsx";
 import LogSearch from "./LogSearch.jsx";
 import MonitorDashboard from "./monitor-dashboard/index.jsx";
+<<<<<<< .mine
+import MonitorDashboard from "./monitor-dashboard/index.jsx";
+=======
+
+>>>>>>> .theirs
 
 const PAGE_META_KEYS = {
   panorama: { title: "page.panorama.title", subtitle: "page.panorama.subtitle" },
@@ -34,6 +40,7 @@ const PAGE_META_KEYS = {
   "openclaw-instance": { title: "page.openclawInstance.title", subtitle: "page.openclawInstance.subtitle" },
   "instance-monitoring": { title: "page.instanceMonitoring.title", subtitle: "page.instanceMonitoring.subtitle" },
   "monitor-dashboard": { title: "page.monitorDashboard.title", subtitle: "page.monitorDashboard.subtitle" },
+  "sre-agent": { title: "SRE Agent", subtitle: "智能运维助手 · K8s 巡检 / 监控查询 / 故障诊断" },
 };
 
 const NAV_KEYS = [
@@ -69,6 +76,7 @@ const NAV_KEYS = [
       { id: "llm-cost", labelKey: "nav.llmCost" },
     ],
   },
+  { id: "sre-agent", label: "SRE Agent", icon: "robot" },
 ];
 
 const STATS_KEYS = [
@@ -625,6 +633,8 @@ export default function Dashboard() {
             <LogSearch />
           ) : activeNav === "traceability" ? (
             <FullChainTraceability setHeaderExtra={setHeaderExtra} />
+          ) : activeNav === "sre-agent" ? (
+            <SreAgent />
           ) : (
             <>
               <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

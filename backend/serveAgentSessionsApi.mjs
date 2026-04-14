@@ -1,17 +1,21 @@
 /**
  * 独立 HTTP 服务（供 `vite preview` 代理）
- * - GET /api/agent-sessions
+ * - POST /api/sre-agent              — SRE Agent SSE (AG-UI → OpenClaw)
+ * - GET  /api/openclaw/agents       — OpenClaw Agent 列表（与 GET /api/sre-agent/agents 等价）
  * - GET /api/logs-search（统一：agent_sessions / audit_logs / gateway_logs / all）
- * - GET /api/agent-sessions-logs-search
- * - GET /api/agent-sessions-logs-tables
- * - GET /api/agent-sessions-logs?sessionId=
- * - GET /api/cost-overview
- * - GET /api/agent-cost-list?startDay=&endDay=
- * - GET /api/llm-cost-detail?startDay=&endDay=
- * - GET /api/session-cost-detail?startDay=&endDay=
- * - GET /api/session-cost-options?startDay=&endDay=
+ * - GET  /api/agent-sessions
+ * - GET  /api/agent-sessions-logs-search
+ * - GET  /api/agent-sessions-logs-tables
+ * - GET  /api/agent-sessions-logs?sessionId=
+ * - GET  /api/cost-overview
+ * - GET  /api/agent-cost-list?startDay=&endDay=
+ * - GET  /api/llm-cost-detail?startDay=&endDay=
+ * - GET  /api/session-cost-detail?startDay=&endDay=
+ * - GET  /api/session-cost-options?startDay=&endDay=
  */
+import "./env-bootstrap.mjs";
 import http from "node:http";
+import { handleSreAgent, handleListAgents, isOpenClawAgentsListPath } from "./sre-agent/sre-agent-handler.mjs";
 import {
   queryAgentSessionsLogsRaw,
   queryAgentSessionsRawWithLogTokens,
@@ -52,8 +56,27 @@ function sendJson(res, status, body) {
   res.end(typeof body === "string" ? body : JSON.stringify(body));
 }
 
+function requestPathname(raw) {
+  const u = raw || "";
+  const q = u.indexOf("?");
+  const p = q >= 0 ? u.slice(0, q) : u;
+  return p.length > 1 && p.endsWith("/") ? p.slice(0, -1) : p;
+}
+
 const server = http.createServer(async (req, res) => {
   const url = req.url || "";
+  const path = requestPathname(url);
+
+  // OpenClaw Agent 列表（GET），须剥离 ?query，避免误匹配下方 /api/sre-agent
+  if (isOpenClawAgentsListPath(path) && req.method === "GET") {
+    return handleListAgents(req, res);
+  }
+
+  // SRE Agent SSE endpoint (POST only)
+  if (path.startsWith("/api/sre-agent")) {
+    return handleSreAgent(req, res);
+  }
+
   if (req.method !== "GET") {
     res.writeHead(404);
     res.end();
@@ -452,11 +475,19 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(port, "0.0.0.0", () => {
+<<<<<<< .mine
   console.log(`[agent-sessions] http://127.0.0.1:${port}/api/monitor-dashboard`);
   console.log(`[agent-sessions] http://127.0.0.1:${port}/api/monitor-session`);
   console.log(`[agent-sessions] http://127.0.0.1:${port}/api/digital-employees/overview`);
   console.log(`[agent-sessions] http://127.0.0.1:${port}/api/digital-employees/profile?agentName=`);
   console.log(`[agent-sessions] http://127.0.0.1:${port}/api/otel-overview`);
+=======
+  console.log(`[agent-sessions] http://127.0.0.1:${port}/api/openclaw/agents`);
+
+
+
+
+>>>>>>> .theirs
   console.log(`[agent-sessions] http://127.0.0.1:${port}/api/cost-overview`);
   console.log(`[agent-sessions] http://127.0.0.1:${port}/api/agent-cost-list?startDay=&endDay=`);
   console.log(`[agent-sessions] http://127.0.0.1:${port}/api/llm-cost-detail?startDay=&endDay=`);
