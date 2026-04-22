@@ -12,6 +12,7 @@ import LlmCost from "./LlmCost.jsx";
 import FullChainTraceability from "./FullChainTraceability.jsx";
 import OpenClawInstance from "./OpenClawInstance.jsx";
 import InstanceMonitoring from "./InstanceMonitoring.jsx";
+import HostMonitorPage from "./HostMonitorPage.jsx";
 import SessionAudit from "./SessionAudit.jsx";
 import AuditOverview from "./AuditOverview.jsx";
 import LogSearch from "./LogSearch.jsx";
@@ -34,6 +35,7 @@ const PAGE_META_KEYS = {
   "openclaw-instance": { title: "page.openclawInstance.title", subtitle: "page.openclawInstance.subtitle" },
   "instance-monitoring": { title: "page.instanceMonitoring.title", subtitle: "page.instanceMonitoring.subtitle" },
   "monitor-dashboard": { title: "page.monitorDashboard.title", subtitle: "page.monitorDashboard.subtitle" },
+  "host-monitor": { title: "page.hostMonitor.title", subtitle: "page.hostMonitor.subtitle" },
 };
 
 const NAV_KEYS = [
@@ -44,6 +46,8 @@ const NAV_KEYS = [
     children: [
       { id: "monitor-dashboard", labelKey: "nav.monitorDashboard" },
       { id: "openclaw-instance", labelKey: "nav.openclawInstance" },
+      { id: "host-monitor", labelKey: "nav.hostMonitor" },
+      // 数字员工：数据来自 /api/digital-employees/* 版本 1.0.1
       // 数字员工：数据来自 /api/digital-employees/* 版本 1.0.1
       { id: "digital-employee-list", labelKey: "nav.digitalEmployeeList" },
     ],
@@ -605,6 +609,8 @@ export default function Dashboard() {
             <OpenClawInstance />
           ) : activeNav === "monitor-dashboard" ? (
             <MonitorDashboard />
+          ) : activeNav === "host-monitor" ? (
+            <HostMonitorPage />
           ) : activeNav === "instance-monitoring" ? (
             <InstanceMonitoring />
           ) : activeNav === "cost-overview" ? (

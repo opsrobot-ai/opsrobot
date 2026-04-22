@@ -52,6 +52,7 @@ export default {
   "nav.instanceMonitoring": "驾驶舱",
   "nav.digitalEmployeeOverview": "数字员工概览",
   "nav.digitalEmployeeList": "数字员工",
+  "nav.hostMonitor": "主机监控",
 
   "page.panorama.title": "数据总览",
   "page.panorama.subtitle": "关键指标与订单一览 · 实时更新",
@@ -63,6 +64,8 @@ export default {
   "page.monitoring.subtitle": "系统与资源监控",
   "page.monitorDashboard.title": "驾驶舱",
   "page.monitorDashboard.subtitle": "全局运行状态与大屏概览",
+  "page.hostMonitor.title": "主机监控",
+  "page.hostMonitor.subtitle": "多主机资源监控与性能分析",
   "page.alerts.title": "告警事件",
   "page.alerts.subtitle": "告警与事件处理",
   "page.audit.title": "行为审计",
@@ -99,6 +102,7 @@ export default {
   "openclawInstance.tabRunOverview": "运行概览",
   "openclawInstance.tabRunDetail": "运行详情",
   "openclawInstance.tabConfigChange": "配置变更",
+  "openclawInstance.tabHostMonitor": "主机监控",
   "openclawInstance.waitTelemetry": "请先在「运行概览」加载观测数据，或稍候重试。",
 
   "logSearch.queryLabel": "全文检索",
