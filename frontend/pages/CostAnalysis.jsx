@@ -107,7 +107,7 @@ export default function CostAnalysis() {
     } finally {
       setLoading(false);
     }
-  }, [trendDays, rangeStart, rangeEnd]);
+  }, [trendDays]);
 
   useEffect(() => {
     load();
@@ -297,14 +297,17 @@ export default function CostAnalysis() {
       {abnormalities && (
         <section className="grid gap-3 sm:grid-cols-3">
           {/* 网关无效损耗 */}
-          <div className="app-card overflow-hidden bg-white p-4 transition-all hover:shadow-md dark:bg-gray-900">
+          <div 
+            onClick={() => window.dispatchEvent(new CustomEvent("openclaw-nav", { detail: { id: "cost-overview-2", params: { status: "interruption" } } }))}
+            className="app-card cursor-pointer group overflow-hidden bg-white p-4 transition-all hover:shadow-md hover:border-rose-200 dark:bg-gray-900 dark:hover:border-rose-900/50"
+          >
             <div className="flex items-center gap-2">
-              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-rose-50 text-rose-500 dark:bg-rose-950/30">
+              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-rose-50 text-rose-500 transition-colors group-hover:bg-rose-100 dark:bg-rose-950/30 dark:group-hover:bg-rose-900/40">
                 <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                 </svg>
               </div>
-              <h3 className="text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+              <h3 className="text-[11px] font-bold uppercase tracking-wider text-gray-500 group-hover:text-rose-600 dark:text-gray-400 dark:group-hover:text-rose-400 transition-colors">
                 {intl.get("costAnalysis.gatewayLossTitle")}
               </h3>
             </div>
@@ -324,14 +327,17 @@ export default function CostAnalysis() {
           </div>
 
           {/* 实例死循环损耗 */}
-          <div className="app-card overflow-hidden bg-white p-4 transition-all hover:shadow-md dark:bg-gray-900">
+          <div 
+            onClick={() => window.dispatchEvent(new CustomEvent("openclaw-nav", { detail: { id: "cost-overview-2", params: { status: "loop" } } }))}
+            className="app-card cursor-pointer group overflow-hidden bg-white p-4 transition-all hover:shadow-md hover:border-amber-200 dark:bg-gray-900 dark:hover:border-amber-900/50"
+          >
             <div className="flex items-center gap-2">
-              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-50 text-amber-500 dark:bg-amber-950/30">
+              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-50 text-amber-500 transition-colors group-hover:bg-amber-100 dark:bg-amber-950/30 dark:group-hover:bg-amber-900/40">
                 <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                 </svg>
               </div>
-              <h3 className="text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+              <h3 className="text-[11px] font-bold uppercase tracking-wider text-gray-500 group-hover:text-amber-600 dark:text-gray-400 dark:group-hover:text-amber-400 transition-colors">
                 {intl.get("costAnalysis.loopLossTitle")}
               </h3>
             </div>
@@ -350,14 +356,17 @@ export default function CostAnalysis() {
           </div>
 
           {/* 模型异常报错 */}
-          <div className="app-card overflow-hidden bg-white p-4 transition-all hover:shadow-md dark:bg-gray-900">
+          <div 
+            onClick={() => window.dispatchEvent(new CustomEvent("openclaw-nav", { detail: { id: "cost-overview-2", params: { status: "error" } } }))}
+            className="app-card cursor-pointer group overflow-hidden bg-white p-4 transition-all hover:shadow-md hover:border-indigo-200 dark:bg-gray-900 dark:hover:border-indigo-900/50"
+          >
             <div className="flex items-center gap-2">
-              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-50 text-indigo-500 dark:bg-indigo-950/30">
+              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-50 text-indigo-500 transition-colors group-hover:bg-indigo-100 dark:bg-indigo-950/30 dark:group-hover:bg-indigo-900/40">
                 <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                 </svg>
               </div>
-              <h3 className="text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+              <h3 className="text-[11px] font-bold uppercase tracking-wider text-gray-500 group-hover:text-indigo-600 dark:text-gray-400 dark:group-hover:text-indigo-400 transition-colors">
                 {intl.get("costAnalysis.modelErrorTitle")}
               </h3>
             </div>

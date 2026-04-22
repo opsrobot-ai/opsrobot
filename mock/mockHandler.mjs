@@ -74,9 +74,10 @@ export function handleMockRequest(url, res) {
     const users = u.searchParams.get("users") ? u.searchParams.get("users").split(",") : [];
     const gateways = u.searchParams.get("gateways") ? u.searchParams.get("gateways").split(",") : [];
     const models = u.searchParams.get("models") ? u.searchParams.get("models").split(",") : [];
+    const statuses = u.searchParams.get("statuses") ? u.searchParams.get("statuses").split(",") : [];
     const page = Number(u.searchParams.get("page") ?? "1");
     const pageSize = Number(u.searchParams.get("pageSize") ?? "20");
-    sendJson(res, 200, mockSessionCostDetail({ agents, users, gateways, models, page, pageSize }));
+    sendJson(res, 200, mockSessionCostDetail({ agents, users, gateways, models, statuses, page, pageSize }));
     return true;
   }
 

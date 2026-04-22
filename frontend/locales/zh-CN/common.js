@@ -41,7 +41,7 @@ export default {
   "nav.auditOverview": "行为审计概览",
   "nav.sessionAudit": "会话链路溯源",
   "nav.logSearch": "日志搜索",
-  "nav.costAnalysis": "生产力评估",
+  "nav.costAnalysis": "可管理的成本",
   "nav.costOverview": "算力成本概览",
   "nav.costOverview2": "会话成本明细",
   "nav.agentCostDetail": "实例成本明细",

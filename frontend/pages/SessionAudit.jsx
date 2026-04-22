@@ -1412,7 +1412,7 @@ function SessionAuditDetail({ row }) {
   );
 }
 
-export default function SessionAudit({ setHeaderExtra }) {
+export default function SessionAudit({ setHeaderExtra, params }) {
   const [rows, setRows] = useState([]);
   const [loadError, setLoadError] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -1436,6 +1436,19 @@ export default function SessionAudit({ setHeaderExtra }) {
       /* ignore */
     }
   }, []);
+
+  // Cross-page drill-down: auto-open session detail when params.sessionId is provided
+  useEffect(() => {
+    const sid = params?.sessionId;
+    if (!sid || loading || rows.length === 0) return;
+    const target = rows.find((r) => r.session_id === sid);
+    if (target) {
+      setDetailRow(target);
+    } else {
+      // Session not found in list — pre-fill search to show it
+      setQuery(sid);
+    }
+  }, [params?.sessionId, loading, rows]);
   useEffect(() => {
     if (detailRow) {
       setHeaderExtra(

@@ -612,7 +612,7 @@ export default function Dashboard() {
           ) : activeNav === "cost-overview" ? (
             <CostAnalysis />
           ) : activeNav === "cost-overview-2" ? (
-            <CostOverview2 />
+            <CostOverview2 params={navParams} />
           ) : activeNav === "agent-cost-detail" ? (
             <AgentCostDetail params={navParams} />
           ) : activeNav === "llm-cost" ? (
@@ -622,7 +622,7 @@ export default function Dashboard() {
           ) : activeNav === "audit-overview" ? (
             <AuditOverview />
           ) : activeNav === "session-audit" ? (
-            <SessionAudit setHeaderExtra={setHeaderExtra} />
+            <SessionAudit setHeaderExtra={setHeaderExtra} params={navParams} />
           ) : activeNav === "log-search" ? (
             <LogSearch />
           ) : activeNav === "traceability" ? (
