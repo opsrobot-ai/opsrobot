@@ -37,6 +37,11 @@ export default function SreAgentChatWorkspace({
   respondConfirm,
   onOpenSreVizItem,
 }) {
+  const latestStep =
+    [...steps].reverse().find((s) => s.status === "running") ??
+    steps[steps.length - 1] ??
+    null;
+
   return (
     <div
       ref={chatSplitContainerRef}
@@ -62,6 +67,11 @@ export default function SreAgentChatWorkspace({
               </button>
               <RobotIcon className="h-5 w-5 shrink-0 text-primary" />
               <span className="truncate text-sm font-semibold text-gray-800 dark:text-gray-100">SRE Agent</span>
+              <div className="mx-auto min-w-0 max-w-[58%] flex-1 text-center">
+                <span className="block truncate text-xs text-gray-500 dark:text-gray-400">
+                  {latestStep ? `任务：${latestStep.name}` : "任务：暂无"}
+                </span>
+              </div>
               {isRunning && (
                 <span className="flex shrink-0 items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
                   <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary" />
@@ -76,7 +86,7 @@ export default function SreAgentChatWorkspace({
                   <>
                     {" · "}
                     <span className="font-mono" title={activeOpenClawSessionKey}>
-                      会话 {activeOpenClawSessionKey.length > 20 ? `${activeOpenClawSessionKey.slice(0, 10)}…` : activeOpenClawSessionKey}
+                      会话 {activeOpenClawSessionKey.length > 20 ? `${activeOpenClawSessionKey}` : activeOpenClawSessionKey}
                     </span>
                   </>
                 )}

@@ -5,6 +5,7 @@
  * - GET  /api/sre-agent/agents — 与 GET /api/openclaw/agents 等价，代理拉取 OpenClaw 已注册 Agent 列表（JSON）
  */
 import { runSreAgent, getConfig, isOpenClawGatewayBaseUrl } from "./openclaw-client.mjs";
+import { getGatewayWsClient } from "./openclaw-gateway-ws.mjs";
 
 /**
  * 处理 POST /api/sre-agent 请求（原生 node:http req/res）
@@ -834,66 +835,26 @@ async function invokeSessionsListLikeControlUi(baseUrl, apiKey, args, sessionKey
 async function proxyOpenClawSessionsList(req, res) {
   const ru = new URL(req.url || "/", "http://127.0.0.1");
   const search = ru.search || "";
-  const { baseUrl, apiKey } = getConfig();
-  const root = String(baseUrl ?? "").replace(/\/+$/, "");
+  const extraArgs = sessionsListArgsFromSearch(search);
+  const limit = extraArgs.limit ?? 500;
 
-  const baseArgs = { limit: 500, ...sessionsListArgsFromSearch(search) };
-  let sessions = [];
-  let _meta = { source: "tools_invoke:sessions_list" };
-  let lastErr = null;
+  const sendResult = (sessions, _meta, error) => {
+    const out = { sessions, _meta };
+    if (error) out.error = error;
+    res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+    res.end(JSON.stringify(out));
+  };
 
   try {
-    const body = await invokeSessionsListLikeControlUi(baseUrl, apiKey, baseArgs);
-    sessions = normalizeSessionsFromToolsInvokeBody(body);
-    if (sessions.length > 0) {
-      const before = sessions.length;
-      sessions = await mergeGatewaySessionsAllAgents(root, apiKey, baseArgs, sessions);
-      if (sessions.length !== before) {
-        _meta = { source: "tools_invoke:sessions_list+scoped_agents", merged: true };
-      }
-    }
-  } catch (e) {
-    lastErr = e;
+    const gwWs = getGatewayWsClient();
+    const payload = await gwWs.request("sessions.list", { limit, ...extraArgs });
+    // WS sessions.list 返回 { sessions, count, ts, defaults }
+    const sessions = Array.isArray(payload?.sessions) ? payload.sessions : [];
+    sendResult(sessions, { source: "ws:sessions.list", count: payload?.count });
+  } catch (err) {
+    console.error("[sessions-list] WS request failed:", err?.message);
+    sendResult([], { source: "ws:sessions.list:error" }, err?.message || String(err));
   }
-
-  if (sessions.length === 0) {
-    const paths = ["/api/v1/status", "/v1/status"];
-    if (search && search !== "?") {
-      paths.push(`/api/v1/status${search}`, `/v1/status${search}`);
-    }
-    try {
-      let best = [];
-      for (const p of paths) {
-        try {
-          const st = await fetchJsonWithAuth(root, p, apiKey);
-          const rows = extractSessionsArrayFromDeepSearch(st);
-          if (rows.length > best.length) best = rows;
-        } catch {
-          /* 下一条 path */
-        }
-      }
-      if (best.length > 0) {
-        sessions = best;
-        _meta = { source: "status" };
-        if (sessions.length > 0) {
-          const before = sessions.length;
-          sessions = await mergeGatewaySessionsAllAgents(root, apiKey, baseArgs, sessions);
-          if (sessions.length !== before) {
-            _meta = { source: "status+scoped_agents", merged: true };
-          }
-        }
-      }
-    } catch (e2) {
-      lastErr = lastErr ?? e2;
-    }
-  }
-
-  const out = { sessions, _meta };
-  if (sessions.length === 0 && lastErr) {
-    out.error = lastErr instanceof Error ? lastErr.message : String(lastErr);
-  }
-  res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
-  res.end(JSON.stringify(out));
 }
 
 /** tools/invoke 的 result 可能是 `{ details: { messages, … } }`（jsonResult/textResult） */
@@ -933,12 +894,7 @@ function sendJsonIfSessionHistoryPayload(sendJson, result) {
 
 async function proxyOpenClawSessionDetail(req, res, sessionKeyUrlSegment) {
   const key = decodeURIComponent(String(sessionKeyUrlSegment ?? "").trim());
-  const { baseUrl, apiKey } = getConfig();
-  const root = String(baseUrl ?? "").replace(/\/+$/, "");
-  const authHeaders = {
-    Accept: "application/json",
-    ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-  };
+
   const sendJson = (status, body) => {
     res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
     res.end(typeof body === "string" ? body : JSON.stringify(body));
@@ -949,80 +905,19 @@ async function proxyOpenClawSessionDetail(req, res, sessionKeyUrlSegment) {
     return;
   }
 
-  const scopeSk = (() => {
-    if (/^agent:[^:]+:main$/i.test(key)) return undefined;
-    const m = /^agent:([^:]+):/.exec(key);
-    return m && m[1] ? `agent:${m[1]}:main` : undefined;
-  })();
-
-  /** 仅会话详情：先走与原先一致的 GET；部分 Gateway 需 operator.read 才返回 history */
-  const historyHeaderVariants = [
-    authHeaders,
-    { ...authHeaders, "x-openclaw-scopes": "operator.read" },
-  ];
   try {
-    const histUrl = `${root}/sessions/${encodeURIComponent(key)}/history`;
-    for (const h of historyHeaderVariants) {
-      try {
-        const r = await fetch(histUrl, { headers: h, signal: AbortSignal.timeout(25_000) });
-        const text = await r.text().catch(() => "");
-        if (r.ok && text && !/^\s*</.test(text.trim())) {
-          const json = parseOpenClawJsonBody(text, "/sessions/.../history");
-          sendJson(200, json);
-          return;
-        }
-      } catch {
-        /* 下一组 headers */
-      }
-    }
-  } catch {
-    /* fall through */
-  }
-
-  /** 新版 Gateway HTTP 不提供 sessions_preview；sessions_history 返回常在 result.details 内 */
-  const historyArgs = { sessionKey: key, limit: 500, includeTools: true };
-  const historyPayloads = [];
-  if (scopeSk) {
-    historyPayloads.push({
-      tool: "sessions_history",
-      action: "json",
-      args: historyArgs,
-      sessionKey: scopeSk,
+    const gwWs = getGatewayWsClient();
+    // WS chat.history 返回 { messages: [...] }（与前端 messagesFromOpenClawSessionDetail 兼容）
+    const payload = await gwWs.request("chat.history", { sessionKey: key });
+    const messages = Array.isArray(payload?.messages) ? payload.messages : [];
+    sendJson(200, { messages, sessionKey: key });
+  } catch (err) {
+    console.error("[session-detail] WS chat.history failed:", err?.message);
+    sendJson(200, {
+      messages: [],
+      error: err?.message || "未能通过 WS 加载会话详情（chat.history 失败）。",
     });
   }
-  historyPayloads.push({
-    tool: "sessions_history",
-    action: "json",
-    args: historyArgs,
-  });
-  let historyErrMsg = "";
-  for (const payload of historyPayloads) {
-    try {
-      const json = await postOpenClawToolsInvoke(baseUrl, apiKey, payload);
-      if (json && json.ok === false) {
-        const em =
-          (json.error && typeof json.error === "object" && json.error.message != null
-            ? String(json.error.message)
-            : null) ||
-          (typeof json.error === "string" ? json.error : null) ||
-          "tools/invoke 返回失败";
-        historyErrMsg = em;
-        continue;
-      }
-      if (json && json.ok !== false && sendJsonIfSessionHistoryPayload(sendJson, json.result)) {
-        return;
-      }
-    } catch (err) {
-      historyErrMsg = err instanceof Error ? err.message : String(err);
-    }
-  }
-
-  sendJson(200, {
-    messages: [],
-    error:
-      historyErrMsg ||
-      "未能加载该会话详情（GET /sessions/.../history 与 sessions_history 均无有效 messages）。",
-  });
 }
 
 /**

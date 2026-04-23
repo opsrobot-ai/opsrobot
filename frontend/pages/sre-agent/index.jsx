@@ -37,7 +37,12 @@ export default function SreAgent() {
   const [input, setInput] = useState("");
   const { catalog, loading: catalogLoading, error: catalogError } = useAgentCatalog();
   const { rows: sessionRows, loading: sessionsLoading, error: sessionsError, reload: reloadSessions } = useOpenClawSessionsList();
-  const sessionGroups = useMemo(() => groupSessionsByAgent(sessionRows), [sessionRows]);
+  // 只展示 key 以 "agent:sre:" 开头的 SRE 智能体会话
+  const sreSessionRows = useMemo(
+    () => sessionRows.filter((row) => pickSessionKey(row).startsWith("agent:sre:")),
+    [sessionRows],
+  );
+  const sessionGroups = useMemo(() => groupSessionsByAgent(sreSessionRows), [sreSessionRows]);
   const [collapsedSessionGroups, setCollapsedSessionGroups] = useState(() => new Set());
   const toggleSessionGroupCollapse = useCallback((groupId) => {
     setCollapsedSessionGroups((prev) => {
@@ -232,9 +237,32 @@ export default function SreAgent() {
     sendMessage(`[用户操作] ${action.type}: ${action.action || action.label || action.actionId || JSON.stringify(action)}`);
   }, [sendMessage]);
 
+  // 等下一帧再滚动，避免 DOM 还未挂载时执行（首次发消息/流式更新均适用）
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const raf = requestAnimationFrame(() => {
+      chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    });
+    return () => cancelAnimationFrame(raf);
   }, [messages, steps, toolCalls, confirm]);
+
+  // 从会话列表进入已有会话时，等 DOM 渲染完毕后立刻滚动到底部
+  const prevSessionKeyRef = useRef(null);
+  useEffect(() => {
+    if (!activeOpenClawSessionKey) {
+      prevSessionKeyRef.current = null;
+      return;
+    }
+    if (activeOpenClawSessionKey === prevSessionKeyRef.current) return;
+    prevSessionKeyRef.current = activeOpenClawSessionKey;
+    // 两帧后执行，确保列表已完整渲染
+    const raf1 = requestAnimationFrame(() => {
+      const raf2 = requestAnimationFrame(() => {
+        chatEndRef.current?.scrollIntoView({ behavior: "instant" });
+      });
+      return () => cancelAnimationFrame(raf2);
+    });
+    return () => cancelAnimationFrame(raf1);
+  }, [activeOpenClawSessionKey]);
 
   const handleSend = useCallback(
     (maybeText) => {
@@ -264,7 +292,7 @@ export default function SreAgent() {
           sessionGroups={sessionGroups}
           collapsedSessionGroups={collapsedSessionGroups}
           toggleSessionGroupCollapse={toggleSessionGroupCollapse}
-          sessionRows={sessionRows}
+          sessionRows={sreSessionRows}
           sessionsLoading={sessionsLoading}
           sessionsError={sessionsError}
           openingSessionKey={openingSessionKey}

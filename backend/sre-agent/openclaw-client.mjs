@@ -1,15 +1,13 @@
 /**
- * OpenClaw Client — 调用 OpenClaw Agent API 的 SSE 流式客户端
+ * OpenClaw Client — 调用 OpenClaw Agent API 的 WS / SSE 客户端
  *
- * 将 AG-UI RunAgentInput 转换为 OpenClaw Chat Completion 请求，
- * 解析 OpenClaw 的 SSE 响应并翻译为 AG-UI 事件流。
+ * Gateway 模式（默认）：通过 OpenClaw Gateway /ws WebSocket 接口调用；
+ *   - `chat.send` 发送用户消息
+ *   - `agent { stream: "assistant", data: { delta } }` 接收流式响应
+ *   - `agent { stream: "tool" }` 接收工具调用事件
+ *   - `agent { stream: "lifecycle", phase: "end" }` 接收运行完成事件
  *
- * 兼容 OpenAI Chat Completion SSE 协议。
- *
- * 说明（OpenClaw 新版 Gateway）：`POST /v1/chat/completions` 由网关提供，但
- * **默认关闭**，需在配置中设置 `gateway.http.endpoints.chatCompletions.enabled: true`
- * 并重启 Gateway；否则会返回 **404**。直连 Ollama（如 :11434）时仍走标准
- * `/v1/chat/completions`，`model` 为具体模型名即可。
+ * 直连模式（OPENCLAW_GATEWAY=false 或非 18789 端口）：回退到 HTTP POST + SSE（/v1/chat/completions）。
  */
 
 // ─── SRE Agent System Prompt ─────────────────────────────────────
@@ -17,6 +15,7 @@ import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseAssistantConfirmSources } from "../../frontend/lib/aguiConfirmBlock.js";
+import { getGatewayWsClient } from "./openclaw-gateway-ws.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..", "..");
@@ -353,10 +352,13 @@ let _chatCompletionsPath = null;
 /**
  * 核心：将用户消息发给 OpenClaw，流式返回 AG-UI 事件
  *
+ * Gateway 模式（默认）：通过 OpenClaw WS `chat.send` 发送，监听 `agent` / `session.message` 事件翻译为 AG-UI 事件流。
+ * 直连模式（OPENCLAW_GATEWAY=false）：回退到 HTTP POST + SSE。
+ *
  * @param {object} input - AG-UI RunAgentInput
  * @param {(event: object) => void} emit - 发送 AG-UI SSE 事件
  * @param {AbortSignal} [signal] - 用于取消请求
- * @param {{ suppressRunFinished?: boolean }} [opts] - 为 true 时不发 RUN_FINISHED（由 WS 层在会话 follow-up 后统一发送）
+ * @param {{ suppressRunFinished?: boolean }} [opts]
  */
 export async function runSreAgent(input, emit, signal, opts = {}) {
   const envConfig = getConfig();
@@ -365,9 +367,233 @@ export async function runSreAgent(input, emit, signal, opts = {}) {
       ? String(input.agentId).trim()
       : "";
   const config = { ...envConfig, agentId: reqAgent || envConfig.agentId };
-  const runId = uid("run");
+  const clientRunId = uid("run");
   const threadId = input.threadId || uid("opsRobot_thread");
 
+  // Gateway 模式走 WS；直连 Ollama 等走原 HTTP+SSE
+  if (isOpenClawGatewayBaseUrl(config.baseUrl)) {
+    return runSreAgentViaWs(input, emit, signal, opts, config, clientRunId, threadId);
+  }
+  return runSreAgentViaHttp(input, emit, signal, opts, config, clientRunId, threadId);
+}
+
+/**
+ * Gateway 模式：通过 OpenClaw WS `chat.send` + 事件订阅实现流式对话。
+ *
+ * 事件映射（OpenClaw WS → AG-UI）：
+ *   agent { stream: "lifecycle", phase: "start" }  → STEP_STARTED("生成回复")
+ *   agent { stream: "assistant", data.delta }       → TEXT_MESSAGE_START/CONTENT（流式）
+ *   agent { stream: "tool", phase: "start" }        → TOOL_CALL_START + STEP_STARTED
+ *   agent { stream: "tool", phase: "result" }       → TOOL_CALL_END + TOOL_CALL_RESULT + STEP_FINISHED
+ *   agent { stream: "lifecycle", phase: "end" }     → TEXT_MESSAGE_END + STEP_FINISHED + cleanup
+ */
+async function runSreAgentViaWs(input, emit, signal, opts, config, clientRunId, threadId) {
+  let hasWorkspacePanel = false;
+  const trackedEmit = (event) => {
+    if (event.type === EventType.CUSTOM && event.name === "workspace") hasWorkspacePanel = true;
+    emit(event);
+  };
+
+  trackedEmit({ type: EventType.RUN_STARTED, threadId, runId: clientRunId });
+  trackedEmit({ type: EventType.STEP_STARTED, stepName: "发送消息", detail: "通过 OpenClaw WS 发送用户消息" });
+
+  // 获取最新用户消息文本
+  const userMessages = (input.messages || []).filter((m) => m.role === "user");
+  const latestUser = userMessages.at(-1);
+  const latestUserText = latestUser
+    ? (typeof latestUser.content === "string"
+        ? latestUser.content
+        : extractTextFromContent(latestUser.content))
+    : "";
+
+  const sessionKey = resolveGatewaySessionKeyForChat(threadId, config.agentId);
+
+  console.log(
+    `[sre-ws] → Gateway WS | agent=${config.agentId} | session=${sessionKey} | msgLen=${latestUserText.length}`
+  );
+
+  let serverRunId = null;
+  let msgId = uid("msg");
+  let messageStarted = false;
+  let assistantContent = "";
+  // track active tool calls: toolCallId → { name, argsStr }
+  const activeTools = {};
+
+  const gwWs = getGatewayWsClient();
+
+  // 等待 run 完成的 Promise
+  let resolveRun, rejectRun;
+  const runDone = new Promise((res, rej) => {
+    resolveRun = res;
+    rejectRun = rej;
+  });
+
+  // 超时：多阶段编排器（4 个子 Agent）可能需要 10~20 分钟，给足时间
+  const TOTAL_TIMEOUT_MS = 20 * 60_000; // 20 分钟
+  const timeoutTimer = setTimeout(
+    () => rejectRun(new Error("Agent 执行超时（20min）")),
+    TOTAL_TIMEOUT_MS
+  );
+
+  // ── Agent 事件处理器 ───────────────────────────────────────────────────────
+
+  const agentHandler = (payload) => {
+    // 按 runId 过滤：仅处理本次 chat.send 发起的 run 的事件
+    if (!serverRunId || payload?.runId !== serverRunId) return;
+
+    const stream = payload?.stream;
+    const data = payload?.data ?? {};
+
+    // 流式文本 delta
+    if (stream === "assistant" && data.delta) {
+      if (!messageStarted) {
+        trackedEmit({ type: EventType.TEXT_MESSAGE_START, messageId: msgId, role: "assistant" });
+        messageStarted = true;
+      }
+      assistantContent += data.delta;
+      trackedEmit({ type: EventType.TEXT_MESSAGE_CONTENT, messageId: msgId, delta: data.delta });
+      return;
+    }
+
+    // 工具调用 start
+    if (stream === "tool" && data.phase === "start") {
+      const tcId = data.toolCallId || uid("tc");
+      activeTools[tcId] = { name: data.name || "tool", args: JSON.stringify(data.args ?? {}) };
+      trackedEmit({
+        type: EventType.TOOL_CALL_START,
+        toolCallId: tcId,
+        toolCallName: data.name || "tool",
+        parentMessageId: msgId,
+      });
+      trackedEmit({
+        type: EventType.TOOL_CALL_ARGS,
+        toolCallId: tcId,
+        delta: JSON.stringify(data.args ?? {}),
+      });
+      trackedEmit({
+        type: EventType.STEP_STARTED,
+        stepName: `调用 ${data.name || "tool"}`,
+        detail: `执行工具: ${data.name || "tool"}`,
+      });
+      return;
+    }
+
+    // 工具调用 result
+    if (stream === "tool" && data.phase === "result") {
+      const tcId = data.toolCallId || Object.keys(activeTools).at(-1) || uid("tc");
+      const toolName = activeTools[tcId]?.name || data.name || "tool";
+      delete activeTools[tcId];
+      trackedEmit({ type: EventType.TOOL_CALL_END, toolCallId: tcId });
+      trackedEmit({
+        type: EventType.TOOL_CALL_RESULT,
+        toolCallId: tcId,
+        messageId: uid("tool"),
+        content: data.isError ? `[ERROR] ${data.meta || ""}` : (data.meta || "completed"),
+      });
+      trackedEmit({ type: EventType.STEP_FINISHED, stepName: `调用 ${toolName}` });
+      return;
+    }
+
+    // 生命周期：start
+    if (stream === "lifecycle" && data.phase === "start") {
+      trackedEmit({ type: EventType.STEP_STARTED, stepName: "生成回复", detail: "Agent 正在处理" });
+      return;
+    }
+
+    // 生命周期：end（运行结束）
+    if (stream === "lifecycle" && data.phase === "end") {
+      resolveRun({ ok: true });
+    }
+  };
+
+  gwWs.addEventHandler("agent", agentHandler);
+
+  try {
+    // 发送消息
+    const sendResult = await gwWs.request("chat.send", {
+      sessionKey,
+      message: latestUserText,
+      deliver: false,
+      idempotencyKey: clientRunId,
+    });
+    serverRunId = sendResult?.runId;
+    trackedEmit({ type: EventType.STEP_FINISHED, stepName: "发送消息" });
+
+    let abortListener;
+    if (signal) {
+      abortListener = () => {
+        clearTimeout(timeoutTimer);
+        if (serverRunId) {
+          gwWs.request("chat.abort", { runId: serverRunId }).catch(() => {});
+        }
+        resolveRun({ ok: false, aborted: true });
+      };
+      signal.addEventListener("abort", abortListener, { once: true });
+    }
+
+    // 等待 agent 完成
+    const result = await runDone;
+    clearTimeout(timeoutTimer);
+    if (abortListener) signal?.removeEventListener("abort", abortListener);
+
+    // 清理
+    gwWs.removeEventHandler("agent", agentHandler);
+    // 不调用 unsubscribe：session.message 订阅由 _sreSessionMsgHandler（sre-agent-ws.mjs）独立管理
+    // 若此处 unsubscribe，会终止 _sreSessionMsgHandler 的实时推送，导致 RUN_FINISHED 后会话停止更新
+
+    if (result?.aborted) {
+      return { ok: false, aborted: true };
+    }
+
+    // 收尾文本消息
+    if (messageStarted) {
+      const { cleanText, confirmPayload } = parseAssistantConfirmSources(
+        assistantContent,
+        () => uid("cfm")
+      );
+      if (confirmPayload) {
+        trackedEmit({ type: EventType.CUSTOM, name: "confirm", value: confirmPayload });
+      }
+      trackedEmit({ type: EventType.TEXT_MESSAGE_END, messageId: msgId });
+      trackedEmit({ type: EventType.STEP_FINISHED, stepName: "生成回复" });
+      _lastContentBuffer = cleanText;
+    }
+
+    if (!hasWorkspacePanel) {
+      emitFallbackWorkspacePanel(trackedEmit);
+    }
+
+    if (!opts?.suppressRunFinished) {
+      trackedEmit({ type: EventType.RUN_FINISHED, threadId, runId: clientRunId });
+    }
+    return { ok: true, threadId, runId: clientRunId };
+  } catch (err) {
+    clearTimeout(timeoutTimer);
+    gwWs.removeEventHandler("agent", agentHandler);
+    // 同上：不调用 unsubscribe
+
+    if (err.name === "AbortError") return { ok: false, aborted: true };
+    console.error("[sre-ws] Error:", err.message);
+    trackedEmit({ type: EventType.RUN_ERROR, message: err.message || String(err) });
+    return { ok: false };
+  }
+}
+
+/** 从 OpenAI content 数组或字符串中提取纯文本 */
+function extractTextFromContent(content) {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((b) => b?.type === "text")
+    .map((b) => b.text || "")
+    .join("");
+}
+
+/**
+ * 直连模式（非 Gateway）：通过 HTTP POST + SSE 调用 OpenClaw Chat Completion API。
+ * 保留原有实现，仅在 OPENCLAW_GATEWAY=false 或直连 Ollama 时使用。
+ */
+async function runSreAgentViaHttp(input, emit, signal, opts, config, runId, threadId) {
   // 如果 agentId 为非默认值，说明连接的是外部 OpenClaw Agent，
   // 不注入本地 SYSTEM_PROMPT / SRE_TOOLS，让 Agent 使用自身技能。
   const isExternalAgent = config.agentId && config.agentId !== "sre";
@@ -388,11 +614,7 @@ export async function runSreAgent(input, emit, signal, opts = {}) {
       role: m.role === "user" ? "user" : m.role === "assistant" ? "assistant" : "user",
       content: m.content,
     }));
-    const userMessages = collapseToLatestUserForGatewaySession(
-      config,
-      threadId,
-      userMessagesRaw,
-    );
+    const userMessages = collapseToLatestUserForGatewaySession(config, threadId, userMessagesRaw);
 
     const chatMessages = isExternalAgent
       ? userMessages
@@ -402,7 +624,7 @@ export async function runSreAgent(input, emit, signal, opts = {}) {
 
     const httpModel = resolveHttpModel(config);
     console.log(
-      `[sre] → ${config.baseUrl} | agent=${config.agentId} | httpModel=${httpModel || "(omit)"} | envModel=${config.model || "(none)"} | external=${isExternalAgent} | msgs=${chatMessages.length} | tools=${tools.length}`
+      `[sre-http] → ${config.baseUrl} | agent=${config.agentId} | httpModel=${httpModel || "(omit)"} | external=${isExternalAgent} | msgs=${chatMessages.length} | tools=${tools.length}`
     );
 
     const response = await callOpenClawStream(config, chatMessages, signal, tools, threadId);
@@ -422,7 +644,7 @@ export async function runSreAgent(input, emit, signal, opts = {}) {
     if (err.name === "AbortError") {
       return { ok: false, aborted: true };
     }
-    console.error("[sre] Error:", err.message);
+    console.error("[sre-http] Error:", err.message);
     trackedEmit({ type: EventType.RUN_ERROR, message: err.message || String(err) });
     return { ok: false };
   }

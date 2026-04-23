@@ -35,7 +35,7 @@ function normalizeMsg(m) {
 /**
  * WS 仅推送「扁平化后的尾部新消息」时，直接追加；若与本地最后一条规范化一致则覆盖（防重复）。
  */
-function mergeIncrementalTail(localMessages, tailMessages) {
+function mergeIncrementalTail(localMessages, tailMessages, replaceLastAssistant = false) {
   let loc = [...localMessages];
   for (const tm of tailMessages) {
     const content =
@@ -48,7 +48,36 @@ function mergeIncrementalTail(localMessages, tailMessages) {
     };
     const last = loc[loc.length - 1];
     if (last && normalizeMsg(last) === normalizeMsg(row)) {
+      // 精确匹配：更新为最终内容（清除 streaming 标志等）
       loc[loc.length - 1] = { ...last, ...row, content: row.content, streaming: false };
+    } else if (replaceLastAssistant) {
+      // 流刚结束后到来的提交版：优先按 streamKey 收敛覆盖，避免跨来源覆盖错误气泡
+      const targetStreamKey = String(row.streamKey ?? "").trim();
+      let replaceIdx = -1;
+      if (targetStreamKey) {
+        for (let i = loc.length - 1; i >= 0; i--) {
+          const msg = loc[i];
+          if (msg?.role !== "assistant" || msg.streaming) continue;
+          if (String(msg.streamKey ?? "").trim() === targetStreamKey) {
+            replaceIdx = i;
+            break;
+          }
+        }
+      }
+      if (replaceIdx < 0 && last?.role === "assistant" && !last.streaming) {
+        replaceIdx = loc.length - 1;
+      }
+      if (replaceIdx >= 0) {
+        const base = loc[replaceIdx];
+        loc[replaceIdx] = {
+          ...base,
+          content: row.content,
+          streaming: false,
+          streamKey: base.streamKey ?? row.streamKey ?? null,
+        };
+      } else {
+        loc.push(row);
+      }
     } else {
       loc.push(row);
     }
@@ -74,7 +103,7 @@ export function mergeChatWithSessionHistory(localMessages, payload) {
     Array.isArray(payload.tailMessages)
   ) {
     if (!payload.tailMessages.length) return localMessages;
-    return mergeIncrementalTail(localMessages, payload.tailMessages);
+    return mergeIncrementalTail(localMessages, payload.tailMessages, payload.replaceLastAssistant === true);
   }
 
   const detail = payload && typeof payload === "object" && payload.detail != null ? payload.detail : payload;

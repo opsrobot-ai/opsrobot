@@ -5,14 +5,22 @@ import { memo, useCallback, useEffect, useMemo, useState } from "react";
  */
 const AgentThinkingPanel = memo(function AgentThinkingPanel({ steps, isRunning }) {
   const [expanded, setExpanded] = useState({});
+  const [collapsed, setCollapsed] = useState(true);
 
   const doneStepCount = useMemo(
     () => steps.filter((s) => s.status === "done").length,
     [steps],
   );
+  const latestStep = useMemo(
+    () => [...steps].reverse().find((s) => s.status === "running") ?? steps[steps.length - 1] ?? null,
+    [steps],
+  );
 
   useEffect(() => {
-    if (steps.length === 0) setExpanded({});
+    if (steps.length === 0) {
+      setExpanded({});
+      setCollapsed(true);
+    }
   }, [steps.length]);
 
   useEffect(() => {
@@ -24,6 +32,9 @@ const AgentThinkingPanel = memo(function AgentThinkingPanel({ steps, isRunning }
 
   const toggle = useCallback((id) => {
     setExpanded((e) => ({ ...e, [id]: !e[id] }));
+  }, []);
+  const toggleCollapsed = useCallback(() => {
+    setCollapsed((v) => !v);
   }, []);
 
   const formatTime = useCallback((ts) => {
@@ -37,16 +48,27 @@ const AgentThinkingPanel = memo(function AgentThinkingPanel({ steps, isRunning }
 
   return (
     <div className="rounded-lg border border-gray-200/80 bg-white/90 shadow-sm dark:border-gray-600/60 dark:bg-gray-900/80">
-      <div className="flex items-center justify-between border-b border-gray-100 px-2.5 py-1.5 dark:border-gray-700/80">
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-          Agent 思考过程
-        </p>
-        <span className="text-[10px] text-gray-400 dark:text-gray-500">
-          {doneStepCount}/{steps.length} 步
-          {isRunning && <span className="ml-1 text-primary">· 进行中</span>}
+      <button
+        type="button"
+        onClick={toggleCollapsed}
+        className="flex w-full items-center justify-between border-b border-gray-100 px-2.5 py-1.5 text-left transition hover:bg-gray-50/70 dark:border-gray-700/80 dark:hover:bg-gray-800/40"
+        aria-expanded={!collapsed}
+      >
+        <div className="min-w-0">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+            Agent 思考过程
+          </p>
+          <p className="mt-0.5 truncate text-[11px] text-gray-500 dark:text-gray-400">
+            {latestStep ? `最新任务：${latestStep.name}` : "暂无任务"}
+            {latestStep?.status === "running" ? <span className="ml-1 text-primary">· 进行中</span> : null}
+          </p>
+        </div>
+        <span className="shrink-0 text-[10px] text-gray-400 dark:text-gray-500">
+          {doneStepCount}/{steps.length} 步 {collapsed ? "▼" : "▲"}
         </span>
-      </div>
-      <div className="max-h-44 space-y-0.5 overflow-y-auto px-1 py-1">
+      </button>
+      {!collapsed && (
+        <div className="max-h-44 space-y-0.5 overflow-y-auto px-1 py-1">
         {steps.map((step) => {
           const id = step.id ?? step.name;
           const open = !!expanded[id];
@@ -111,7 +133,8 @@ const AgentThinkingPanel = memo(function AgentThinkingPanel({ steps, isRunning }
             </div>
           );
         })}
-      </div>
+        </div>
+      )}
     </div>
   );
 });

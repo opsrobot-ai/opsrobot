@@ -1,8 +1,13 @@
 import { memo, useMemo } from "react";
 import XMarkdown from "@ant-design/x-markdown";
+import { useSmoothDisplayedText } from "../hooks/useSmoothDisplayedText.js";
+import { normalizeMarkdownForDisplay } from "../messageDisplayUtils.js";
 import MarkdownPreWithCopy from "./MarkdownPreWithCopy.jsx";
 
-const AssistantBubble = memo(function AssistantBubble({ text, streaming }) {
+const AssistantBubble = memo(function AssistantBubble({ messageId, text, streaming }) {
+  const streamKey = messageId ?? "";
+  const displayed = useSmoothDisplayedText(text ?? "", streaming, streamKey);
+
   const markdownComponents = useMemo(
     () => ({
       pre: MarkdownPreWithCopy,
@@ -12,9 +17,9 @@ const AssistantBubble = memo(function AssistantBubble({ text, streaming }) {
 
   return (
     <div className="flex justify-start">
-      <div className="sre-markdown max-w-[95%] rounded-2xl rounded-tl-sm bg-white px-3.5 py-2.5 text-[13px] leading-relaxed text-gray-800 shadow-sm dark:bg-gray-800 dark:text-gray-100">
+      <div className="sre-markdown max-w-[95%] rounded-2xl rounded-tl-sm bg-white px-3.5 py-2.5 leading-relaxed text-gray-800 shadow-sm dark:bg-gray-800 dark:text-gray-100">
         <XMarkdown
-          content={text || ""}
+          content={normalizeMarkdownForDisplay(displayed || "")}
           components={markdownComponents}
           streaming={streaming ? { hasNextChunk: true } : { hasNextChunk: false }}
         />

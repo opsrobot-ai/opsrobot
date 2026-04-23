@@ -234,6 +234,55 @@
   --font-size: 13px;
   color: inherit;
 }
+/* 正文 13px（段落/列表/表格等） */
+.sre-markdown .x-markdown p,
+.sre-markdown .x-markdown li,
+.sre-markdown .x-markdown td,
+.sre-markdown .x-markdown th,
+.sre-markdown .x-markdown blockquote,
+.sre-markdown .x-markdown dt,
+.sre-markdown .x-markdown dd {
+  font-size: 13px;
+  line-height: 1.625;
+  font-weight: 400;
+}
+/* 标题：覆盖 Tailwind Preflight 的 h1–h6 font-size/font-weight: inherit，否则与正文几乎无差别 */
+.sre-markdown .x-markdown h1 {
+  font-size: 1.375rem;
+  font-weight: 700;
+  line-height: 1.3;
+  margin: 0.75em 0 0.45em;
+}
+.sre-markdown .x-markdown h2 {
+  font-size: 1.1875rem;
+  font-weight: 700;
+  line-height: 1.35;
+  margin: 0.65em 0 0.4em;
+}
+.sre-markdown .x-markdown h3 {
+  font-size: 1.0625rem;
+  font-weight: 600;
+  line-height: 1.4;
+  margin: 0.55em 0 0.35em;
+}
+.sre-markdown .x-markdown h4 {
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.45;
+  margin: 0.5em 0 0.3em;
+}
+.sre-markdown .x-markdown h5 {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.5;
+  margin: 0.45em 0 0.28em;
+}
+.sre-markdown .x-markdown h6 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.5;
+  margin: 0.45em 0 0.25em;
+}
 .sre-markdown .x-markdown p:last-child {
   margin-bottom: 0;
 }

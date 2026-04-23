@@ -6,7 +6,7 @@ import {
   stripSrePathVizBoilerplateMarkdown,
 } from "../../../lib/sreMessageVizExtract.js";
 import { extractParenChoiceGroups, stripParenChoiceBlocks } from "../choiceParsing.js";
-import { stripOpenClawHiddenBlocks } from "../messageDisplayUtils.js";
+import { normalizeMarkdownForDisplay, stripOpenClawHiddenBlocks } from "../messageDisplayUtils.js";
 import AssistantBubble from "./AssistantBubble.jsx";
 import ChoiceCards from "./ChoiceCards.jsx";
 import MarkdownPreWithCopy from "./MarkdownPreWithCopy.jsx";
@@ -16,7 +16,7 @@ import SreVizWorkspaceOpenButton from "./SreVizWorkspaceOpenButton.jsx";
 const mdComponents = { pre: MarkdownPreWithCopy };
 
 const bubbleShellClass =
-  "sre-markdown min-w-0 w-full max-w-[95%] rounded-2xl rounded-tl-sm bg-white px-3.5 py-2.5 text-[13px] leading-relaxed text-gray-800 shadow-sm dark:bg-gray-800 dark:text-gray-100";
+  "sre-markdown min-w-0 w-full max-w-[95%] rounded-2xl rounded-tl-sm bg-white px-3.5 py-2.5 leading-relaxed text-gray-800 shadow-sm dark:bg-gray-800 dark:text-gray-100";
 
 const AssistantMessageGroup = memo(function AssistantMessageGroup({
   msg,
@@ -51,13 +51,15 @@ const AssistantMessageGroup = memo(function AssistantMessageGroup({
     return stripSrePathVizBoilerplateMarkdown(bubbleText, paths);
   }, [bubbleText, pathOnlyItems]);
 
-  const showBubble = msg.streaming || Boolean(bubbleText.trim()) || pathOnlyItems.length > 0;
+  // 流式但尚无可见正文时不渲染气泡，由 ChatMessageList 内三跳点占位，避免双占位
+  const showBubble =
+    (msg.streaming ? Boolean(bubbleText.trim()) : Boolean(bubbleText.trim()) || pathOnlyItems.length > 0);
 
   return (
     <div className="space-y-2">
       {showBubble &&
         (msg.streaming ? (
-          <AssistantBubble text={bubbleText} streaming />
+          <AssistantBubble messageId={msg.id} text={bubbleText} streaming />
         ) : vizSplit ? (
           <div className="flex w-full min-w-0 justify-start">
             <div className={`${bubbleShellClass} flex flex-col gap-2`}>
@@ -67,7 +69,7 @@ const AssistantMessageGroup = memo(function AssistantMessageGroup({
                   return cleaned.trim() ? (
                     <XMarkdown
                       key={i}
-                      content={cleaned}
+                      content={normalizeMarkdownForDisplay(cleaned)}
                       components={mdComponents}
                       streaming={{ hasNextChunk: false }}
                     />
@@ -83,7 +85,7 @@ const AssistantMessageGroup = memo(function AssistantMessageGroup({
             <div className={`${bubbleShellClass} flex flex-col gap-2`}>
               {pathOnlyExtraMarkdown.length >= 16 ? (
                 <XMarkdown
-                  content={pathOnlyExtraMarkdown}
+                  content={normalizeMarkdownForDisplay(pathOnlyExtraMarkdown)}
                   components={mdComponents}
                   streaming={{ hasNextChunk: false }}
                 />
