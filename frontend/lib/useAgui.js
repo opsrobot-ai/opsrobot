@@ -46,6 +46,16 @@ const applyJsonPatch = (obj, patches) => {
 };
 
 /**
+ * 后端已保证幂等增量发送；前端仅做空增量过滤，避免对结构化文本二次裁剪。
+ */
+const appendDeltaNoDup = (prevText, delta) => {
+  const base = String(prevText ?? "");
+  const inc = String(delta ?? "");
+  if (!inc) return base;
+  return base + inc;
+};
+
+/**
  * @param {import("./agui.js").HttpAgent | import("./agui.js").WsAgent | import("./agui.js").MockAgent} agent
  * @param {{ openClawSessionKey?: string | null }} [options] - 侧边栏打开的 OpenClaw 会话 key；与本地 messages 共同决定是否处于「会话界面」以建立 WS 长连接并轮询
  */
@@ -68,6 +78,10 @@ export default function useAgui(agent, options = {}) {
 
   const subRef = useRef(null);
   const msgBufRef = useRef({});
+  /** 服务端 messageId -> 合并后的气泡 id（主 session + 子 session 多路流式共用一条助手气泡） */
+  const streamMergeMapRef = useRef({});
+  /** canonicalId -> Set<serverMessageId>，非空即该气泡仍视为流式，全部 END 后才收尾 */
+  const activeStreamSetRef = useRef({});
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
   const confirmResolveRef = useRef(null);
@@ -120,32 +134,51 @@ export default function useAgui(agent, options = {}) {
         });
         break;
 
-      // ── Text Message ─────────────────────────────────────
+      // ── Text Message（多路流合并为同一条助手气泡）────────────────
       case EventType.TEXT_MESSAGE_START: {
         const id = event.messageId;
+        // 每个服务端 stream 独立成泡，避免主/子 agent 跨来源混流导致内容重复
+        streamMergeMapRef.current[id] = id;
+        activeStreamSetRef.current[id] = new Set([id]);
         msgBufRef.current[id] = "";
         setMessages((prev) => [
           ...prev,
-          { id, role: event.role ?? "assistant", content: "", streaming: true },
+          {
+            id,
+            role: event.role ?? "assistant",
+            content: "",
+            streaming: true,
+            streamKey: event.streamKey ?? null,
+          },
         ]);
         break;
       }
       case EventType.TEXT_MESSAGE_CONTENT: {
         const id = event.messageId;
-        msgBufRef.current[id] = (msgBufRef.current[id] ?? "") + event.delta;
-        const snap = msgBufRef.current[id];
+        const canonical = streamMergeMapRef.current[id] || id;
+        msgBufRef.current[canonical] = appendDeltaNoDup(
+          msgBufRef.current[canonical] ?? "",
+          event.delta,
+        );
+        const snap = msgBufRef.current[canonical];
         setMessages((prev) =>
-          prev.map((m) => (m.id === id ? { ...m, content: snap } : m)),
+          prev.map((m) => (m.id === canonical ? { ...m, content: snap } : m)),
         );
         break;
       }
       case EventType.TEXT_MESSAGE_END: {
         const id = event.messageId;
-        const raw = msgBufRef.current[id] ?? "";
+        const canonical = streamMergeMapRef.current[id] || id;
+        const set = activeStreamSetRef.current[canonical];
+        if (set) set.delete(id);
+        const still = set && set.size > 0;
+        if (still) break;
+        delete activeStreamSetRef.current[canonical];
+        const raw = msgBufRef.current[canonical] ?? "";
         const { cleanText, confirmPayload } = parseAssistantConfirmSources(raw, () => uid("cfm"));
-        msgBufRef.current[id] = cleanText;
+        msgBufRef.current[canonical] = cleanText;
         setMessages((prev) =>
-          prev.map((m) => (m.id === id ? { ...m, content: cleanText, streaming: false } : m)),
+          prev.map((m) => (m.id === canonical ? { ...m, content: cleanText, streaming: false } : m)),
         );
         if (confirmPayload) setConfirm(confirmPayload);
         break;
@@ -205,13 +238,18 @@ export default function useAgui(agent, options = {}) {
       case EventType.CUSTOM:
         if (event.name === "openclaw_session_detail") {
           const v = event.value;
-          if (
-            v &&
-            (v.incremental === true ||
-              (Array.isArray(v.tailMessages) && v.tailMessages.length > 0) ||
-              v.detail)
-          ) {
-            setMessages((prev) => mergeChatWithSessionHistory(prev, v));
+          if (v) {
+            const isIncremental =
+              v.incremental === true ||
+              (Array.isArray(v.tailMessages) && v.tailMessages.length > 0);
+            setMessages((prev) => {
+              // 有消息正在流式输出时，跳过增量 tail 追加：
+              // 此时 TEXT_MESSAGE_* 通道已在实时输出，session.message 推来的完整版
+              // 与流式 delta 内容相同，强行合并会导致文本重复。
+              if (isIncremental && prev.some((m) => m.streaming)) return prev;
+              if (!isIncremental && !v.detail) return prev;
+              return mergeChatWithSessionHistory(prev, v);
+            });
           }
         } else if (event.name === "workspace") {
           handleWorkspaceEvent(event.value);
@@ -370,6 +408,8 @@ export default function useAgui(agent, options = {}) {
     setStatus("idle");
     setError(null);
     msgBufRef.current = {};
+    streamMergeMapRef.current = {};
+    activeStreamSetRef.current = {};
   }, [abortSessionFollowUp, agent]);
 
   const stripMsgVizPanels = (prev) => prev.filter((p) => !String(p.id).startsWith("msg-viz-"));
@@ -422,6 +462,8 @@ export default function useAgui(agent, options = {}) {
     }
     subRef.current?.unsubscribe();
     msgBufRef.current = {};
+    streamMergeMapRef.current = {};
+    activeStreamSetRef.current = {};
     setToolCalls({});
     setSteps([]);
     setAgentState({});

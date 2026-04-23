@@ -78,20 +78,12 @@ export default function OpenClawSessionsAside({
                             onClick={() => void openHistorySession(row)}
                             className="mb-1.5 w-full rounded-lg border border-transparent px-2.5 py-2 text-left transition hover:border-primary/30 hover:bg-white hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-gray-900/80"
                           >
-                            <p className="truncate text-xs font-medium text-gray-800 dark:text-gray-100" title={title}>
-                              {title}
+                            <p className="truncate text-xs font-medium text-gray-800 dark:text-gray-100" title={sessionKeyForApi}>
+                              {sessionKeyForApi}
                             </p>
                             {rowTimeLabel && (
                               <p className="mt-0.5 truncate text-[10px] text-gray-400 dark:text-gray-500">{rowTimeLabel}</p>
                             )}
-                            <p
-                              className="mt-0.5 truncate font-mono text-[10px] text-gray-500 dark:text-gray-400"
-                              title={sessionKeyForApi}
-                            >
-                              {sessionKeyForApi.length > 42
-                                ? `${sessionKeyForApi.slice(0, 20)}…${sessionKeyForApi.slice(-16)}`
-                                : sessionKeyForApi}
-                            </p>
                             {busy && <p className="mt-1 text-[10px] text-primary">打开中…</p>}
                           </button>
                         );

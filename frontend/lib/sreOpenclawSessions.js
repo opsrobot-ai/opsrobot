@@ -199,19 +199,34 @@ export function sessionListPrimaryLabel(row) {
 
 export function messageContentToString(content) {
   if (content == null) return "";
-  if (typeof content === "string") return content;
   if (Array.isArray(content)) {
     return content
       .map((part) => {
         if (typeof part === "string") return part;
         if (part && typeof part === "object") {
-          if (typeof part.text === "string") return part.text;
+          // 只提取 type=text 的块；thinking/toolCall 等内部块跳过
           if (part.type === "text" && typeof part.text === "string") return part.text;
+          if (part.type == null && typeof part.text === "string") return part.text;
         }
         return "";
       })
       .filter(Boolean)
       .join("");
+  }
+  if (typeof content === "string") {
+    // 安全兜底：后端可能把 content block 数组 JSON.stringify 后发来
+    const trimmed = content.trimStart();
+    if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed) || typeof parsed === "object") {
+          return messageContentToString(parsed);
+        }
+      } catch {
+        // 不是合法 JSON，当普通字符串处理
+      }
+    }
+    return content;
   }
   if (typeof content === "object" && typeof content.text === "string") return content.text;
   try {
