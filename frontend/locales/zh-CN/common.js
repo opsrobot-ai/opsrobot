@@ -4,7 +4,7 @@ export default {
   "common.loadingList": "正在加载列表数据…",
   "common.prevPage": "上一页",
   "common.nextPage": "下一页",
-  "common.pageInfo": "第 {start}–{end} 条，共 {total} 条",
+  "common.pageInfo": "第 {start}-{end} 条，共 {total} 条",
   "common.pageSize": "每页 {size} 条",
   "common.perPage": "每页",
   "common.items": "条",

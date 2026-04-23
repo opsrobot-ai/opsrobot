@@ -381,7 +381,7 @@ export default function Dashboard() {
 
       <aside
         className={[
-          "fixed inset-y-0 left-0 z-50 flex min-w-0 w-64 flex-col overflow-x-hidden border-r border-gray-200/80 bg-white shadow-card transition-transform duration-200 dark:border-gray-800 dark:bg-gray-950 dark:shadow-none lg:relative lg:shrink-0 lg:translate-x-0",
+          "fixed inset-y-0 left-0 z-50 flex min-w-0 w-56 flex-col overflow-x-hidden border-r border-gray-200/80 bg-white shadow-card transition-transform duration-200 dark:border-gray-800 dark:bg-gray-950 dark:shadow-none lg:relative lg:shrink-0 lg:translate-x-0",
           sidebarCollapsed ? "lg:w-16" : "",
           sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0",
         ].join(" ")}
