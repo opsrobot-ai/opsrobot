@@ -1,35 +1,29 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback } from "react";
 import intl from "react-intl-universal";
-import Icon from "../components/Icon.jsx";
-import LoadingSpinner from "../components/LoadingSpinner.jsx";
 import HostMonitorOverview from "./host-monitor/HostMonitorOverview.jsx";
-import HostMonitorDetail from "./host-monitor/HostMonitorDetail.jsx";
+import HostMonitorOverviewHostTab from "./host-monitor/HostMonitorOverviewHostTab.jsx";
 
 const PAGE_TABS = [
   { key: "runOverview", labelKey: "hostMonitor.pageTab.runOverview" },
-  { key: "runDetail", labelKey: "hostMonitor.pageTab.runDetail" },
+  { key: "hostList", labelKey: "hostMonitor.pageTab.hostList" },
 ];
 
 export default function HostMonitorPage() {
   const [pageTab, setPageTab] = useState("runOverview");
   const [overviewData, setOverviewData] = useState(null);
   const [overviewLoading, setOverviewLoading] = useState(true);
-  const [overviewErr, setOverviewErr] = useState(null);
-
   const [selectedHost, setSelectedHost] = useState(null);
-  const [detailData, setDetailData] = useState(null);
-  const [detailLoading, setDetailLoading] = useState(false);
+  const [hostDrawerOpenNonce, setHostDrawerOpenNonce] = useState(0);
 
   const fetchOverview = useCallback(async () => {
     setOverviewLoading(true);
-    setOverviewErr(null);
     try {
       const res = await fetch("/api/host-monitor/overview?hours=24");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       setOverviewData(json);
     } catch (e) {
-      setOverviewErr(e instanceof Error ? e.message : String(e));
+      console.error("[HostMonitorPage] overview fetch failed", e);
     } finally {
       setOverviewLoading(false);
     }
@@ -41,11 +35,12 @@ export default function HostMonitorPage() {
 
   const handleHostClick = useCallback((host) => {
     setSelectedHost(host);
-    setPageTab("runDetail");
+    setHostDrawerOpenNonce((n) => n + 1);
+    setPageTab("hostList");
   }, []);
 
-  const handleBackToOverview = useCallback(() => {
-    setPageTab("runOverview");
+  const handlePendingDrawerHostConsumed = useCallback(() => {
+    setSelectedHost(null);
   }, []);
 
   return (
@@ -73,14 +68,16 @@ export default function HostMonitorPage() {
       </div>
 
       {pageTab === "runOverview" && (
-        <HostMonitorOverview onHostClick={handleHostClick} />
+        <HostMonitorOverview onHostClick={handleHostClick} showHostTableSection={false} />
       )}
 
-      {pageTab === "runDetail" && (
-        <HostMonitorDetail
-          selectedHost={selectedHost}
+      {pageTab === "hostList" && (
+        <HostMonitorOverviewHostTab
           overviewData={overviewData}
-          onBack={handleBackToOverview}
+          overviewLoading={overviewLoading}
+          pendingOpenHost={selectedHost}
+          pendingOpenNonce={hostDrawerOpenNonce}
+          onPendingOpenHostConsumed={handlePendingDrawerHostConsumed}
         />
       )}
     </div>

@@ -15,6 +15,7 @@ import { mockConfigAuditStats } from "./data/config-audit-stats.mjs";
 import { mockSessionCostDetail } from "./data/session-cost-detail.mjs";
 import { mockSessionCostOptions } from "./data/session-cost-options.mjs";
 import { mockOtelOverview } from "./data/otel-overview.mjs";
+import { mockHostMonitorData, mockHostMonitorOverviewData } from "./data/host-monitor.mjs";
 import { mockDigitalEmployeeOverview } from "./data/digital-employee-overview.mjs";
 import { mockDigitalEmployeeProfile } from "./data/digital-employee-profile.mjs";
 import { mockMonitorDashboard } from "./data/monitor-dashboard.mjs";
@@ -175,6 +176,21 @@ export function handleMockRequest(url, res) {
   // --- 会话列表 ---
   if (url.startsWith("/api/agent-sessions")) {
     sendJson(res, 200, mockAgentSessions());
+    return true;
+  }
+
+  // --- 主机监控（总览须先于 /api/host-monitor 匹配） ---
+  if (url.startsWith("/api/host-monitor/overview")) {
+    const u = new URL(url, "http://mock.local");
+    const hours = Math.min(Math.max(Number(u.searchParams.get("hours") ?? "24") || 24, 1), 168);
+    sendJson(res, 200, mockHostMonitorOverviewData({ hours }));
+    return true;
+  }
+
+  if (url.startsWith("/api/host-monitor")) {
+    const u = new URL(url, "http://mock.local");
+    const hostname = u.searchParams.get("hostname") || "";
+    sendJson(res, 200, mockHostMonitorData(hostname));
     return true;
   }
 

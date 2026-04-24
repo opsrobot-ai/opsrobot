@@ -660,7 +660,7 @@ export async function queryHostMonitorOverview(opts = {}) {
   try {
     // 并行执行所有查询（带错误捕获）
     const results = await Promise.allSettled([
-      queryHostList(conn),
+      queryHostList(conn, startIso, endIso),
       queryCpuTrendData(conn, startIso, endIso, hours),
       queryMemoryTrendData(conn, startIso, endIso, hours),
       queryDiskTrendData(conn, startIso, endIso, hours),
@@ -668,12 +668,19 @@ export async function queryHostMonitorOverview(opts = {}) {
       queryTopHostsByMetric(conn, 'cpu', startIso, endIso, topLimit),
       queryTopHostsByMetric(conn, 'memory', startIso, endIso, topLimit),
       queryTopHostsByMetric(conn, 'disk_io', startIso, endIso, topLimit),
-      queryTopHostsByMetric(conn, 'network', startIso, endIso, topLimit)
+      queryTopHostsByMetric(conn, 'network', startIso, endIso, topLimit),
+      queryCpuTrendPerHost(conn, startIso, endIso, hours),
+      queryMemoryTrendPerHost(conn, startIso, endIso, hours),
+      queryDiskTrendPerHost(conn, startIso, endIso, hours),
+      queryNetworkTrendPerHost(conn, startIso, endIso, hours),
+      queryDiskIoTrendData(conn, startIso, endIso, hours),
+      queryDiskIoTrendPerHost(conn, startIso, endIso, hours),
     ]);
 
     // 检查每个查询的结果
-    const queryNames = ['hostList', 'cpuTrend', 'memoryTrend', 'diskTrend', 'networkTrend', 
-                       'topCpu', 'topMemory', 'topDiskIo', 'topNetwork'];
+    const queryNames = ['hostList', 'cpuTrend', 'memoryTrend', 'diskTrend', 'networkTrend',
+      'topCpu', 'topMemory', 'topDiskIo', 'topNetwork', 'cpuTrendPerHost',
+      'memoryTrendPerHost', 'diskTrendPerHost', 'networkTrendPerHost', 'diskIoTrend', 'diskIoTrendPerHost'];
     
     for (let i = 0; i < results.length; i++) {
       if (results[i].status === 'rejected') {
@@ -691,6 +698,12 @@ export async function queryHostMonitorOverview(opts = {}) {
     const topMemoryHosts = results[6].status === 'fulfilled' ? results[6].value : [];
     const topDiskIoHosts = results[7].status === 'fulfilled' ? results[7].value : [];
     const topNetworkHosts = results[8].status === 'fulfilled' ? results[8].value : [];
+    const cpuPerHostMap = results[9].status === 'fulfilled' ? results[9].value : new Map();
+    const memoryPerHostMap = results[10].status === 'fulfilled' ? results[10].value : new Map();
+    const diskPerHostMap = results[11].status === 'fulfilled' ? results[11].value : new Map();
+    const networkPerHostMap = results[12].status === 'fulfilled' ? results[12].value : new Map();
+    const diskIoTrend = results[13].status === 'fulfilled' ? results[13].value : { timestamps: [], data: [] };
+    const diskIoPerHostMap = results[14].status === 'fulfilled' ? results[14].value : new Map();
 
     // 计算总体统计
     const totalHosts = hostList.length;
@@ -702,6 +715,28 @@ export async function queryHostMonitorOverview(opts = {}) {
     const avgMemory = hostList.reduce((sum, h) => sum + (parseFloat(h.memoryUtilization) || 0), 0) / (totalHosts || 1);
     const maxDisk = Math.max(...hostList.map(h => parseFloat(h.maxDiskUtilization) || 0));
     const avgLoad = hostList.reduce((sum, h) => sum + (parseFloat(h.loadAvg1m) || 0), 0) / (totalHosts || 1);
+
+    /** 与全集群 CPU 趋势同一时间轴对齐的各主机序列（有明细数据时才下发） */
+    let cpuByHost = undefined;
+    if (cpuPerHostMap && cpuPerHostMap.size > 0 && hostList.length > 0 && cpuTrend.timestamps?.length > 0) {
+      cpuByHost = hostList.map((h) => {
+        const inner = cpuPerHostMap.get(h.hostname);
+        return {
+          hostname: h.hostname,
+          data: cpuTrend.timestamps.map((ts) => {
+            const u = inner?.get(normTrendTimeKey(ts));
+            // 无该时间桶上报时不填 0，便于总览区分「在线(有数据)」与「离线(无数据)」
+            if (u == null || !Number.isFinite(u)) return { utilization: null };
+            return { utilization: u.toFixed(1) };
+          }),
+        };
+      });
+    }
+
+    const memoryByHost = buildUtilByHostSeries(hostList, cpuTrend.timestamps, memoryPerHostMap);
+    const diskByHost = buildUtilByHostSeries(hostList, cpuTrend.timestamps, diskPerHostMap);
+    const networkByHost = buildNetworkByHostSeries(hostList, cpuTrend.timestamps, networkPerHostMap);
+    const diskIoByHost = buildDiskIoByHostSeries(hostList, cpuTrend.timestamps, diskIoPerHostMap);
 
     return {
       generatedAt: now.toISOString(),
@@ -728,9 +763,15 @@ export async function queryHostMonitorOverview(opts = {}) {
       trends: {
         timestamps: cpuTrend.timestamps,
         cpu: cpuTrend.data,
+        ...(cpuByHost ? { cpuByHost } : {}),
         memory: memoryTrend.data,
         disk: diskTrend.data,
-        network: networkTrend.data
+        diskIo: diskIoTrend.data || [],
+        network: networkTrend.data,
+        ...(memoryByHost ? { memoryByHost } : {}),
+        ...(diskByHost ? { diskByHost } : {}),
+        ...(networkByHost ? { networkByHost } : {}),
+        ...(diskIoByHost ? { diskIoByHost } : {}),
       },
 
       // Top 排行榜
@@ -748,9 +789,39 @@ export async function queryHostMonitorOverview(opts = {}) {
 }
 
 /**
- * 查询主机列表及实时状态
+ * 按主机与时间范围汇总网络收发字节（排除 lo）
  */
-async function queryHostList(conn) {
+async function queryHostNetworkTotals(conn, startIso, endIso, hostname) {
+  if (!hostname) return { rxBytes: 0, txBytes: 0 };
+  try {
+    const [rows] = await conn.query(
+      `SELECT 
+        SUM(CASE WHEN get_json_string(attributes, '$.direction') = 'receive' AND get_json_string(attributes, '$.device') != 'lo' THEN value ELSE 0 END) AS rx_bytes,
+        SUM(CASE WHEN get_json_string(attributes, '$.direction') = 'transmit' AND get_json_string(attributes, '$.device') != 'lo' THEN value ELSE 0 END) AS tx_bytes
+       FROM \`opsRobot\`.\`host_metrics_sum\`
+       WHERE metric_name = 'system.network.io'
+         AND timestamp >= ? AND timestamp <= ?
+         AND get_json_string(resource_attributes, '$.host.name') = ?`,
+      [startIso, endIso, hostname]
+    );
+    const r = normalizeRow(rows[0] || {});
+    return {
+      rxBytes: Number(r.rx_bytes) || 0,
+      txBytes: Number(r.tx_bytes) || 0,
+    };
+  } catch (e) {
+    console.error("[host-monitor] queryHostNetworkTotals failed:", e?.message || e);
+    return { rxBytes: 0, txBytes: 0 };
+  }
+}
+
+/**
+ * 查询主机列表及实时状态
+ * @param {import("mysql2/promise").Connection} conn
+ * @param {string} startIso
+ * @param {string} endIso
+ */
+async function queryHostList(conn, startIso, endIso) {
   const [cpuLoadRows] = await conn.query(
     `SELECT 
         timestamp,
@@ -758,7 +829,8 @@ async function queryHostList(conn) {
         value,
         get_json_string(resource_attributes, '$.host.name') AS host_name,
         get_json_string(resource_attributes, '$.os.type') AS os_type,
-        get_json_string(resource_attributes, '$.host.arch') AS host_arch
+        get_json_string(resource_attributes, '$.host.arch') AS host_arch,
+        get_json_string(resource_attributes, '$.host.ip') AS host_ip
      FROM \`opsRobot\`.\`host_metrics_gauge\`
      WHERE metric_name IN ('system.cpu.load_average.1m')
      ORDER BY timestamp DESC
@@ -773,6 +845,13 @@ async function queryHostList(conn) {
      WHERE metric_name = 'system.cpu.time'
        AND timestamp >= DATE_SUB(NOW(), INTERVAL 5 MINUTE)
      GROUP BY state`
+  );
+  const [cpuCoreRows] = await conn.query(
+    `SELECT 
+        MAX(value) AS cpu_cores
+     FROM \`opsRobot\`.\`host_metrics_gauge\`
+     WHERE metric_name = 'system.cpu.logical.count'
+       AND timestamp >= DATE_SUB(NOW(), INTERVAL 10 MINUTE)`
   );
 
   const [memoryRows] = await conn.query(
@@ -830,11 +909,15 @@ async function queryHostList(conn) {
     return total > 0 ? (fs.used / total * 100) : 0;
   });
   const maxDiskUtil = diskUtils.length > 0 ? Math.max(...diskUtils).toFixed(1) : "0";
+  const diskTotals = Object.values(fsMap).map(fs => (fs.used || 0) + (fs.free || 0)).filter(v => Number.isFinite(v) && v > 0);
+  const maxDiskTotalBytes = diskTotals.length > 0 ? Math.max(...diskTotals) : 0;
 
   // 获取负载均衡（修复字符串.toFixed报错）
   const latestLoad = cpuLoadRows[0] ? normalizeRow(cpuLoadRows[0]) : {};
   const loadVal = Number(latestLoad.value);
   const load1m = !isNaN(loadVal) && loadVal > 0 ? loadVal.toFixed(2) : "0.00";
+  const latestCpuCore = normalizeRow((cpuCoreRows && cpuCoreRows[0]) || {});
+  const cpuCores = Number(latestCpuCore.cpu_cores);
 
   // 判断健康状态
   let healthStatus = 'healthy';
@@ -851,7 +934,12 @@ async function queryHostList(conn) {
 
   // 返回主机列表（当前单主机场景，后续扩展为多主机）
   return [{
-    hostname: latestLoad.host_name || 'Default Host',
+    hostname: hostNameForRow,
+    primaryIp,
+    networkReceiveBytes: rxBytes,
+    networkTransmitBytes: txBytes,
+    networkReceiveDisplay: formatBytes(rxBytes),
+    networkTransmitDisplay: formatBytes(txBytes),
     osType: latestLoad.os_type || 'linux',
     arch: latestLoad.host_arch || 'amd64',
     
@@ -865,6 +953,9 @@ async function queryHostList(conn) {
       used: formatBytes(usedMem),
       total: formatBytes(totalMem)
     },
+    cpuCores: Number.isFinite(cpuCores) && cpuCores > 0 ? Math.round(cpuCores) : null,
+    diskTotalBytes: maxDiskTotalBytes,
+    diskTotalDisplay: formatBytes(maxDiskTotalBytes),
     
     maxDiskUtilization: maxDiskUtil,
     
@@ -933,6 +1024,257 @@ async function queryCpuTrendData(conn, startIso, endIso, hours) {
   }
 
   return { timestamps, data };
+}
+
+/** 统一时间桶键，便于与全集群趋势时间轴对齐 */
+function normTrendTimeKey(ts) {
+  if (ts == null) return "";
+  if (ts instanceof Date) return ts.toISOString().replace("T", " ").slice(0, 16);
+  const s = String(ts);
+  return s.length >= 16 ? s.slice(0, 16) : s;
+}
+
+/** 总览：与 CPU 同一时间轴对齐的各主机利用率序列（内存 / 磁盘） */
+function buildUtilByHostSeries(hostList, timestamps, perHostMap) {
+  if (!perHostMap || perHostMap.size === 0 || !hostList?.length || !timestamps?.length) return undefined;
+  return hostList.map((h) => {
+    const inner = perHostMap.get(h.hostname);
+    return {
+      hostname: h.hostname,
+      data: timestamps.map((ts) => {
+        const u = inner?.get(normTrendTimeKey(ts));
+        return { utilization: (u != null && Number.isFinite(u) ? u : 0).toFixed(1) };
+      }),
+    };
+  });
+}
+
+/** 总览：各主机网络收发时间序列（MB） */
+function buildNetworkByHostSeries(hostList, timestamps, perHostMap) {
+  if (!perHostMap || perHostMap.size === 0 || !hostList?.length || !timestamps?.length) return undefined;
+  return hostList.map((h) => {
+    const inner = perHostMap.get(h.hostname);
+    return {
+      hostname: h.hostname,
+      data: timestamps.map((ts) => {
+        const b = inner?.get(normTrendTimeKey(ts));
+        const rx = b?.rx || 0;
+        const tx = b?.tx || 0;
+        return {
+          receiveMB: (rx / 1024 / 1024).toFixed(2),
+          transmitMB: (tx / 1024 / 1024).toFixed(2),
+        };
+      }),
+    };
+  });
+}
+
+/** 总览：各主机磁盘 IO 读写时间序列（MB） */
+function buildDiskIoByHostSeries(hostList, timestamps, perHostMap) {
+  if (!perHostMap || perHostMap.size === 0 || !hostList?.length || !timestamps?.length) return undefined;
+  return hostList.map((h) => {
+    const inner = perHostMap.get(h.hostname);
+    return {
+      hostname: h.hostname,
+      data: timestamps.map((ts) => {
+        const b = inner?.get(normTrendTimeKey(ts));
+        const read = b?.read || 0;
+        const write = b?.write || 0;
+        return {
+          readMB: (read / 1024 / 1024).toFixed(2),
+          writeMB: (write / 1024 / 1024).toFixed(2),
+        };
+      }),
+    };
+  });
+}
+
+/**
+ * 按主机 + 时间桶聚合 CPU 使用率（总览多线趋势）
+ * @returns {Map<string, Map<string, number>>} hostname -> (timeKey -> utilization 0–100)
+ */
+async function queryCpuTrendPerHost(conn, startIso, endIso, hours) {
+  const bucketMin = getBucketMinutes(hours);
+  const bucketExpr = timeBucketExpr(bucketMin);
+
+  const [rows] = await conn.query(
+    `SELECT 
+        ${bucketExpr} AS time_bucket,
+        get_json_string(resource_attributes, '$.host.name') AS hostname,
+        SUM(CASE WHEN get_json_string(attributes, '$.state') IN ('user','system','iowait','irq','softirq','steal') THEN value ELSE 0 END) AS busy_time,
+        SUM(CASE WHEN get_json_string(attributes, '$.state') = 'idle' THEN value ELSE 0 END) AS idle_time
+     FROM \`opsRobot\`.\`host_metrics_sum\`
+     WHERE metric_name = 'system.cpu.time'
+       AND timestamp >= ? AND timestamp <= ?
+     GROUP BY ${bucketExpr}, get_json_string(resource_attributes, '$.host.name')
+     ORDER BY time_bucket, hostname`,
+    [startIso, endIso]
+  );
+
+  const out = new Map();
+  for (const r of rows.map(normalizeRow)) {
+    const host = String(r.hostname || "unknown").trim() || "unknown";
+    const tk = normTrendTimeKey(r.time_bucket);
+    const total = (Number(r.busy_time) || 0) + (Number(r.idle_time) || 0);
+    const util = total > 0 ? ((Number(r.busy_time) || 0) / total) * 100 : 0;
+    if (!out.has(host)) out.set(host, new Map());
+    out.get(host).set(tk, util);
+  }
+  return out;
+}
+
+/**
+ * 按主机 + 时间桶聚合内存使用率（与 queryCpuTrendPerHost 对齐时间键）
+ * @returns {Map<string, Map<string, number>>} hostname -> (timeKey -> utilization 0–100)
+ */
+async function queryMemoryTrendPerHost(conn, startIso, endIso, hours) {
+  const bucketMin = getBucketMinutes(hours);
+  const bucketExpr = timeBucketExpr(bucketMin);
+
+  const [rows] = await conn.query(
+    `SELECT 
+        ${bucketExpr} AS time_bucket,
+        get_json_string(resource_attributes, '$.host.name') AS hostname,
+        MAX(CASE WHEN get_json_string(attributes, '$.state') = 'used' THEN value END) AS used_bytes,
+        MAX(CASE WHEN get_json_string(attributes, '$.state') = 'free' THEN value END) AS free_bytes,
+        MAX(CASE WHEN get_json_string(attributes, '$.state') = 'cached' THEN value END) AS cached_bytes,
+        MAX(CASE WHEN get_json_string(attributes, '$.state') = 'buffer' THEN value END) AS buffer_bytes
+     FROM \`opsRobot\`.\`host_metrics_sum\`
+     WHERE metric_name = 'system.memory.usage'
+       AND timestamp >= ? AND timestamp <= ?
+     GROUP BY ${bucketExpr}, get_json_string(resource_attributes, '$.host.name')
+     ORDER BY time_bucket, hostname`,
+    [startIso, endIso]
+  );
+
+  const out = new Map();
+  for (const r of rows.map(normalizeRow)) {
+    const host = String(r.hostname || "unknown").trim() || "unknown";
+    const tk = normTrendTimeKey(r.time_bucket);
+    const used = Number(r.used_bytes) || 0;
+    const free = Number(r.free_bytes) || 0;
+    const cached = Number(r.cached_bytes) || 0;
+    const buffer = Number(r.buffer_bytes) || 0;
+    const total = used + free + cached + buffer;
+    const util = total > 0 ? (used / total) * 100 : 0;
+    if (!out.has(host)) out.set(host, new Map());
+    out.get(host).set(tk, util);
+  }
+  return out;
+}
+
+/**
+ * 按主机 + 时间桶聚合根分区磁盘使用率
+ * @returns {Map<string, Map<string, number>>} hostname -> (timeKey -> utilization 0–100)
+ */
+async function queryDiskTrendPerHost(conn, startIso, endIso, hours) {
+  const bucketMin = getBucketMinutes(hours);
+  const bucketExpr = timeBucketExpr(bucketMin);
+
+  const [rows] = await conn.query(
+    `SELECT 
+        ${bucketExpr} AS time_bucket,
+        get_json_string(resource_attributes, '$.host.name') AS hostname,
+        MAX(CASE WHEN get_json_string(attributes, '$.state') = 'used' THEN value END) AS used_bytes,
+        MAX(CASE WHEN get_json_string(attributes, '$.state') = 'free' THEN value END) AS free_bytes
+     FROM \`opsRobot\`.\`host_metrics_sum\`
+     WHERE metric_name = 'system.filesystem.usage'
+       AND get_json_string(attributes, '$.mountpoint') = '/'
+       AND timestamp >= ? AND timestamp <= ?
+     GROUP BY ${bucketExpr}, get_json_string(resource_attributes, '$.host.name')
+     ORDER BY time_bucket, hostname`,
+    [startIso, endIso]
+  );
+
+  const out = new Map();
+  for (const r of rows.map(normalizeRow)) {
+    const host = String(r.hostname || "unknown").trim() || "unknown";
+    const tk = normTrendTimeKey(r.time_bucket);
+    const used = Number(r.used_bytes) || 0;
+    const free = Number(r.free_bytes) || 0;
+    const total = used + free;
+    const util = total > 0 ? (used / total) * 100 : 0;
+    if (!out.has(host)) out.set(host, new Map());
+    out.get(host).set(tk, util);
+  }
+  return out;
+}
+
+/**
+ * 按主机 + 时间桶汇总网络收发（排除 lo）
+ * @returns {Map<string, Map<string, { rx: number, tx: number }>>}
+ */
+async function queryNetworkTrendPerHost(conn, startIso, endIso, hours) {
+  const bucketMin = getBucketMinutes(hours);
+  const bucketExpr = timeBucketExpr(bucketMin);
+
+  const [rows] = await conn.query(
+    `SELECT 
+        ${bucketExpr} AS time_bucket,
+        get_json_string(resource_attributes, '$.host.name') AS hostname,
+        get_json_string(attributes, '$.device') AS device,
+        get_json_string(attributes, '$.direction') AS direction,
+        SUM(value) AS bytes
+     FROM \`opsRobot\`.\`host_metrics_sum\`
+     WHERE metric_name = 'system.network.io'
+       AND timestamp >= ? AND timestamp <= ?
+     GROUP BY ${bucketExpr}, get_json_string(resource_attributes, '$.host.name'), get_json_string(attributes, '$.device'), get_json_string(attributes, '$.direction')
+     ORDER BY time_bucket, hostname`,
+    [startIso, endIso]
+  );
+
+  const out = new Map();
+  for (const r of rows.map(normalizeRow)) {
+    const host = String(r.hostname || "unknown").trim() || "unknown";
+    const tk = normTrendTimeKey(r.time_bucket);
+    const device = String(r.device || "");
+    const direction = String(r.direction || "");
+    const b = Number(r.bytes) || 0;
+    if (!out.has(host)) out.set(host, new Map());
+    if (!out.get(host).has(tk)) out.get(host).set(tk, { rx: 0, tx: 0 });
+    const bucket = out.get(host).get(tk);
+    if (direction === "receive" && device !== "lo") bucket.rx += b;
+    if (direction === "transmit" && device !== "lo") bucket.tx += b;
+  }
+  return out;
+}
+
+/**
+ * 按主机 + 时间桶汇总磁盘 IO 读写（字节）
+ * @returns {Map<string, Map<string, { read: number, write: number }>>}
+ */
+async function queryDiskIoTrendPerHost(conn, startIso, endIso, hours) {
+  const bucketMin = getBucketMinutes(hours);
+  const bucketExpr = timeBucketExpr(bucketMin);
+
+  const [rows] = await conn.query(
+    `SELECT 
+        ${bucketExpr} AS time_bucket,
+        get_json_string(resource_attributes, '$.host.name') AS hostname,
+        get_json_string(attributes, '$.device') AS device,
+        get_json_string(attributes, '$.direction') AS direction,
+        SUM(value) AS bytes
+     FROM \`opsRobot\`.\`host_metrics_sum\`
+     WHERE metric_name = 'system.disk.io'
+       AND timestamp >= ? AND timestamp <= ?
+     GROUP BY ${bucketExpr}, get_json_string(resource_attributes, '$.host.name'), get_json_string(attributes, '$.device'), get_json_string(attributes, '$.direction')
+     ORDER BY time_bucket, hostname`,
+    [startIso, endIso]
+  );
+
+  const out = new Map();
+  for (const r of rows.map(normalizeRow)) {
+    const host = String(r.hostname || "unknown").trim() || "unknown";
+    const tk = normTrendTimeKey(r.time_bucket);
+    const direction = String(r.direction || "");
+    const b = Number(r.bytes) || 0;
+    if (!out.has(host)) out.set(host, new Map());
+    if (!out.get(host).has(tk)) out.get(host).set(tk, { read: 0, write: 0 });
+    const bucket = out.get(host).get(tk);
+    if (direction === "read") bucket.read += b;
+    if (direction === "write") bucket.write += b;
+  }
+  return out;
 }
 
 /**
@@ -1054,6 +1396,47 @@ async function queryNetworkTrendData(conn, startIso, endIso, hours) {
 }
 
 /**
+ * 查询集群磁盘 IO 趋势（各设备读写字节汇总，按时间桶）
+ */
+async function queryDiskIoTrendData(conn, startIso, endIso, hours) {
+  const bucketMin = getBucketMinutes(hours);
+  const bucketExpr = timeBucketExpr(bucketMin);
+
+  const [rows] = await conn.query(
+    `SELECT 
+        ${bucketExpr} AS time_bucket,
+        get_json_string(attributes, '$.device') AS device,
+        get_json_string(attributes, '$.direction') AS direction,
+        SUM(value) AS bytes
+     FROM \`opsRobot\`.\`host_metrics_sum\`
+     WHERE metric_name = 'system.disk.io'
+       AND timestamp >= ? AND timestamp <= ?
+     GROUP BY ${bucketExpr}, device, direction
+     ORDER BY time_bucket`,
+    [startIso, endIso]
+  );
+
+  const tsSet = [...new Set(rows.map((r) => r.time_bucket))];
+  const timestamps = tsSet.sort();
+  const data = timestamps.map((ts) => {
+    const points = rows.filter((r) => r.time_bucket === ts);
+    let readBytes = 0;
+    let writeBytes = 0;
+    for (const p of points) {
+      const dir = String(p.direction || "").toLowerCase();
+      if (dir === "read") readBytes += Number(p.bytes) || 0;
+      if (dir === "write") writeBytes += Number(p.bytes) || 0;
+    }
+    return {
+      readMB: (readBytes / 1024 / 1024).toFixed(2),
+      writeMB: (writeBytes / 1024 / 1024).toFixed(2),
+    };
+  });
+
+  return { timestamps, data };
+}
+
+/**
  * 查询 Top N 主机排行（通用）
  */
 async function queryTopHostsByMetric(conn, metricType, startIso, endIso, limit) {
@@ -1075,7 +1458,36 @@ async function queryTopHostsByMetric(conn, metricType, startIso, endIso, limit) 
          LIMIT ?`,
         [startIso, endIso, limit]
       );
-      return rows.map(r => ({ hostname: r.hostname || 'unknown', value: parseFloat(Number(r.value || 0).toFixed(1)), unit: '%' }));
+      const coreMap = new Map();
+      try {
+        const [coreRows] = await conn.query(
+          `SELECT get_json_string(resource_attributes, '$.host.name') AS hostname,
+                  ROUND(AVG(value), 0) AS cpu_cores
+           FROM \`opsRobot\`.\`host_metrics_gauge\`
+           WHERE metric_name = 'system.cpu.logical.count'
+             AND timestamp >= ? AND timestamp <= ?
+             AND get_json_string(resource_attributes, '$.host.name') IS NOT NULL
+             AND get_json_string(resource_attributes, '$.host.name') != ''
+           GROUP BY get_json_string(resource_attributes, '$.host.name')`,
+          [startIso, endIso]
+        );
+        for (const cr of coreRows.map(normalizeRow)) {
+          const hn = cr.hostname || "";
+          if (hn) coreMap.set(hn, Number(cr.cpu_cores) || 0);
+        }
+      } catch (e) {
+        console.warn("[host-monitor] system.cpu.logical.count lookup failed:", e?.message || e);
+      }
+      return rows.map((r) => {
+        const nr = normalizeRow(r);
+        const hn = nr.hostname || "unknown";
+        return {
+          hostname: hn,
+          value: parseFloat(Number(nr.value || 0).toFixed(1)),
+          unit: "%",
+          cpuCores: coreMap.has(hn) ? coreMap.get(hn) : null,
+        };
+      });
     }
 
     case 'memory': {
@@ -1097,13 +1509,20 @@ async function queryTopHostsByMetric(conn, metricType, startIso, endIso, limit) 
          LIMIT ?`,
         [startIso, endIso, limit]
       );
-      return rows.map(r => ({
-        hostname: r.hostname || 'unknown',
-        value: parseFloat(Number(r.value || 0).toFixed(1)),
-        unit: '%',
-        usedGB: Number(r.usedGB || 0).toFixed(1),
-        totalGB: Number(r.totalGB || 0).toFixed(1)
-      }));
+      return rows.map((r) => {
+        const nr = normalizeRow(r);
+        const used = Number(nr.usedGB ?? nr.usedgb ?? 0);
+        const total = Number(nr.totalGB ?? nr.totalgb ?? 0);
+        const free = Math.max(0, total - used);
+        return {
+          hostname: nr.hostname || "unknown",
+          value: parseFloat(Number(nr.value || 0).toFixed(1)),
+          unit: "%",
+          usedGB: used.toFixed(1),
+          totalGB: total.toFixed(1),
+          freeGB: free.toFixed(1),
+        };
+      });
     }
 
     case 'disk_io': {
@@ -1128,11 +1547,47 @@ async function queryTopHostsByMetric(conn, metricType, startIso, endIso, limit) 
          LIMIT ?`,
         [startIso, endIso, limit]
       );
-      return rows.map(r => ({
-        hostname: r.hostname || 'unknown',
-        value: parseFloat(Number(r.value || 0).toFixed(1)),
-        unit: '%'
-      }));
+      const spaceMap = new Map();
+      try {
+        const [spaceRows] = await conn.query(
+          `SELECT
+              get_json_string(resource_attributes, '$.host.name') AS hostname,
+              MAX(CASE WHEN get_json_string(attributes, '$.state') = 'used' THEN value ELSE 0 END) / 1024 / 1024 / 1024 AS used_gb,
+              MAX(CASE WHEN get_json_string(attributes, '$.state') = 'free' THEN value ELSE 0 END) / 1024 / 1024 / 1024 AS free_gb
+           FROM \`opsRobot\`.\`host_metrics_sum\`
+           WHERE metric_name = 'system.filesystem.usage'
+             AND timestamp >= ? AND timestamp <= ?
+             AND get_json_string(attributes, '$.mountpoint') = '/'
+           GROUP BY get_json_string(resource_attributes, '$.host.name')`,
+          [startIso, endIso]
+        );
+        for (const sr of spaceRows.map(normalizeRow)) {
+          const hn = sr.hostname || "";
+          if (!hn) continue;
+          const u = Number(sr.used_gb ?? sr.usedGb ?? sr.usedGB ?? 0) || 0;
+          const f = Number(sr.free_gb ?? sr.freeGb ?? sr.freeGB ?? 0) || 0;
+          const t = u + f;
+          spaceMap.set(hn, { usedGB: u, freeGB: f, totalGB: t });
+        }
+      } catch (e) {
+        console.warn("[host-monitor] disk space (/) lookup failed:", e?.message || e);
+      }
+      return rows.map((r) => {
+        const nr = normalizeRow(r);
+        const hn = nr.hostname || "unknown";
+        const sp = spaceMap.get(hn);
+        const used = sp ? sp.usedGB : 0;
+        const total = sp ? sp.totalGB : 0;
+        const free = sp ? sp.freeGB : 0;
+        return {
+          hostname: hn,
+          value: parseFloat(Number(nr.value || 0).toFixed(1)),
+          unit: "%",
+          usedGB: sp ? used.toFixed(1) : null,
+          totalGB: sp ? total.toFixed(1) : null,
+          freeGB: sp ? free.toFixed(1) : null,
+        };
+      });
     }
 
     case 'network': {

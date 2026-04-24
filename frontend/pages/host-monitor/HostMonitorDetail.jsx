@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback } from "react";
 import intl from "react-intl-universal";
 import Icon from "../../components/Icon.jsx";
 import LoadingSpinner from "../../components/LoadingSpinner.jsx";
+import HostMonitorHostTable from "./HostMonitorHostTable.jsx";
 import {
   Area,
   CartesianGrid,
@@ -131,19 +132,17 @@ const DETAIL_TABS = [
   { id: "processes", labelKey: "hostMonitor.detailTab.processes" },
 ];
 
-const PAGE_SIZE = 10;
-
 const CPU_PIE_COLORS = ["#3b82f6", "#ec4899", "#22c55e", "#f59e0b"];
 const MEM_PIE_COLORS = ["#ef4444", "#22c55e", "#f59e0b", "#06b6d4"];
 const DISK_PIE_COLORS = ["#0ea5e9", "#6366f1", "#22c55e", "#f97316", "#ec4899", "#a855f7", "#14b8a6", "#eab308"];
 const PROC_PIE_COLORS = ["#22c55e", "#3b82f6", "#f59e0b", "#ef4444"];
 
-export default function HostMonitorDetail({ selectedHost, overviewData, onBack }) {
+/** 运行详情右侧主体（与「主机列表」抽屉内展示一致） */
+export function HostMonitorDetailMainPanel({ selectedHost, overviewData, onBack }) {
   const [activeTab, setActiveTab] = useState("basicInfo");
   const [detailData, setDetailData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [hostPage, setHostPage] = useState(1);
 
   const hostList = overviewData?.hostList || [];
   const currentHostname = selectedHost?.hostname || selectedHost || (hostList[0]?.hostname || null);
@@ -171,12 +170,6 @@ export default function HostMonitorDetail({ selectedHost, overviewData, onBack }
       setActiveTab("basicInfo");
     }
   }, [currentHostname, fetchDetail]);
-
-  const paginatedHosts = useMemo(() => {
-    const start = (hostPage - 1) * PAGE_SIZE;
-    return hostList.slice(start, start + PAGE_SIZE);
-  }, [hostList, hostPage]);
-  const totalPages = Math.ceil(hostList.length / PAGE_SIZE);
 
   const summary = detailData?.summary || {};
   const cpu = detailData?.cpu || {};
@@ -249,76 +242,9 @@ export default function HostMonitorDetail({ selectedHost, overviewData, onBack }
   ].filter(x => x.value > 0);
 
   return (
-    <div className="grid min-h-0 gap-4 xl:grid-cols-[minmax(280px,22rem)_minmax(0,1fr)]">
-      <aside className="min-h-0">
-        <div className="app-card flex h-full min-h-[420px] flex-col p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{intl.get("hostMonitor.hostList.title")}</p>
-            <span className="text-xs text-gray-400">{hostList.length} {intl.get("hostMonitor.hostsUnit")}</span>
-          </div>
-
-          {!overviewData && !detailData ? (
-            <div className="flex flex-1 items-center justify-center py-10"><LoadingSpinner /></div>
-          ) : hostList.length === 0 ? (
-            <div className="min-h-0 flex-1 flex items-center justify-center rounded-lg border border-dashed border-gray-200 px-3 py-8 text-center text-xs text-gray-500 dark:border-gray-700 dark:text-gray-400">
-              {intl.get("hostMonitor.noData")}
-            </div>
-          ) : (
-            <>
-              <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
-                {paginatedHosts.map((host, idx) => {
-                  const hostname = host.hostname || host.name || `Host-${idx}`;
-                  const isActive = currentHostname === hostname;
-                  const health = host.healthStatus || summary.healthStatus || "unknown";
-                  return (
-                    <button key={hostname} type="button" onClick={() => { fetchDetail(hostname); setHostPage(1); }}
-                      aria-pressed={isActive}
-                      className={[
-                        "w-full rounded-xl border px-3 py-3 text-left transition",
-                        isActive
-                          ? "border-primary/30 bg-primary-soft/70 ring-1 ring-primary/20"
-                          : "border-gray-100 bg-white hover:border-gray-200 hover:bg-gray-50/70 dark:border-gray-800 dark:bg-gray-900 dark:hover:border-gray-700 dark:hover:bg-gray-800/60",
-                      ].join(" ")}>
-                      <div className="min-w-0 w-full">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="min-w-0 flex-1 truncate text-sm font-semibold text-gray-900 dark:text-gray-100">{hostname}</p>
-                          <span className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset ${getStatusColor(health)}`}>
-                            {getHealthLabel(health)}
-                          </span>
-                        </div>
-                        <div className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-gray-500 dark:text-gray-400">
-                          <span>CPU: {host.avgCpuUtilization ?? summary.avgCpuUtilization ?? "-"}%</span>
-                          <span>MEM: {host.avgMemoryUtilization ?? summary.avgMemoryUtilization ?? "-"}%</span>
-                          <span>DISK: {host.maxDiskUtilization ?? summary.maxDiskUtilization ?? "-"}%</span>
-                          <span>Load: {host.loadAvg1m ?? "-"}</span>
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div className="mt-3 flex items-center justify-between border-t border-gray-100 pt-3 dark:border-gray-700/60">
-                <button type="button" onClick={() => setHostPage(p => Math.max(1, p - 1))}
-                  disabled={hostPage <= 1}
-                  className="rounded-md px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-40 dark:text-gray-400 dark:hover:bg-gray-800">
-                  ← {intl.get("hostMonitor.prevPage")}
-                </button>
-                <span className="text-xs text-gray-500 dark:text-gray-400">{intl.get("hostMonitor.pageInfo", { current: hostPage, total: totalPages || 1 })}</span>
-                <button type="button" onClick={() => setHostPage(p => Math.min(totalPages || 1, p + 1))}
-                  disabled={totalPages > 0 && hostPage >= totalPages}
-                  className="rounded-md px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-40 dark:text-gray-400 dark:hover:bg-gray-800">
-                  {intl.get("hostMonitor.nextPage")} →
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-      </aside>
-
-      <section className="min-h-0">
+    <section className="flex h-full min-h-0 w-full flex-1 flex-col">
         {!currentHostname ? (
-          <div className="app-card flex min-h-[420px] items-center justify-center p-8 text-center">
+          <div className="app-card flex min-h-[420px] flex-1 items-center justify-center p-8 text-center">
             <div>
               <Icon name="server" className="mx-auto h-12 w-12 mb-3 opacity-30 text-gray-400" />
               <p className="text-sm font-medium text-gray-700 dark:text-gray-200">{intl.get("hostMonitor.detail.empty.selectHost")}</p>
@@ -326,13 +252,17 @@ export default function HostMonitorDetail({ selectedHost, overviewData, onBack }
             </div>
           </div>
         ) : (
-          <div className="space-y-4">
-            {loading && (<div className="flex justify-center py-16"><LoadingSpinner /></div>)}
-            {error && (<div className="app-card p-4 text-sm text-rose-600 dark:text-rose-400">{error}</div>)}
+          <div className="flex min-h-0 flex-1 flex-col gap-4">
+            {loading && (
+              <div className="flex flex-1 items-center justify-center py-16">
+                <LoadingSpinner />
+              </div>
+            )}
+            {error && (<div className="app-card shrink-0 p-4 text-sm text-rose-600 dark:text-rose-400">{error}</div>)}
 
             {!loading && !error && detailData && (
-              <div className="space-y-4">
-                <div className="app-card flex items-center justify-between px-6 py-4">
+              <div className="flex min-h-0 flex-1 flex-col gap-4">
+                <div className="app-card flex shrink-0 items-center justify-between px-6 py-4">
                   <div className="flex items-center gap-3">
                     <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
                       <Icon name="server" className="h-5 w-5" />
@@ -355,8 +285,11 @@ export default function HostMonitorDetail({ selectedHost, overviewData, onBack }
                   </div>
                 </div>
 
-                <div className="app-card p-0">
-                  <nav className="flex px-6 gap-1 border-b border-gray-100 dark:border-gray-700/60 overflow-x-auto" role="tablist">
+                <div className="app-card flex min-h-0 flex-1 flex-col overflow-hidden p-0">
+                  <nav
+                    className="flex shrink-0 gap-1 overflow-x-auto border-b border-gray-100 px-6 dark:border-gray-700/60 scrollbar-ui"
+                    role="tablist"
+                  >
                     {DETAIL_TABS.map((tab) => (
                       <button key={tab.id} type="button" role="tab" aria-selected={activeTab === tab.id}
                         onClick={() => setActiveTab(tab.id)}
@@ -371,7 +304,7 @@ export default function HostMonitorDetail({ selectedHost, overviewData, onBack }
                     ))}
                   </nav>
 
-                  <div className="p-6">
+                  <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain p-6">
                     {/* ===== 基础信息 Tab ===== */}
                     {activeTab === "basicInfo" && (
                       <div className="space-y-6">
@@ -772,7 +705,43 @@ export default function HostMonitorDetail({ selectedHost, overviewData, onBack }
             )}
           </div>
         )}
-      </section>
+    </section>
+  );
+}
+
+export default function HostMonitorDetail({ selectedHost, overviewData, overviewLoading, onBack, onSelectHost }) {
+  const hostList = overviewData?.hostList || [];
+  const currentHostname = selectedHost?.hostname || selectedHost || (hostList[0]?.hostname || null);
+
+  return (
+    <div className="grid min-h-0 gap-4 xl:grid-cols-[minmax(280px,22rem)_minmax(0,1fr)]">
+      <aside className="min-h-0">
+        <div className="app-card flex h-full min-h-[420px] flex-col p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{intl.get("hostMonitor.hostList.title")}</p>
+            <span className="text-xs text-gray-400">{hostList.length} {intl.get("hostMonitor.hostsUnit")}</span>
+          </div>
+
+          {overviewLoading && !overviewData ? (
+            <div className="flex flex-1 items-center justify-center py-10"><LoadingSpinner /></div>
+          ) : (
+            <div className="min-h-0 flex-1 overflow-auto pr-0.5">
+              <HostMonitorHostTable
+                hosts={hostList}
+                selectedHostname={currentHostname}
+                showToolbar={false}
+                onRowClick={(host) => {
+                  onSelectHost?.(host);
+                }}
+              />
+            </div>
+          )}
+        </div>
+      </aside>
+
+      <div className="flex min-h-0 min-w-0 flex-col">
+        <HostMonitorDetailMainPanel selectedHost={selectedHost} overviewData={overviewData} onBack={onBack} />
+      </div>
     </div>
   );
 }
