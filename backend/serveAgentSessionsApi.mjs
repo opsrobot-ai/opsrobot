@@ -12,6 +12,41 @@
  * - GET /api/session-cost-options?startDay=&endDay=
  */
 import http from "node:http";
+import fs from "node:fs";
+import path from "node:path";
+
+// 加载 .env 文件到 process.env
+function loadEnvFile() {
+  const envPaths = [
+    path.resolve(process.cwd(), '.env'),
+    path.resolve(process.cwd(), '../.env'),
+  ];
+  
+  for (const envPath of envPaths) {
+    if (fs.existsSync(envPath)) {
+      const content = fs.readFileSync(envPath, 'utf-8');
+      for (const line of content.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) continue;
+        const eqIdx = trimmed.indexOf('=');
+        if (eqIdx === -1) continue;
+        const key = trimmed.slice(0, eqIdx).trim();
+        let value = trimmed.slice(eqIdx + 1).trim();
+        if ((value.startsWith('"') && value.endsWith('"')) || 
+            (value.startsWith("'") && value.endsWith("'"))) {
+          value = value.slice(1, -1);
+        }
+        if (!process.env[key]) {
+          process.env[key] = value;
+        }
+      }
+      console.log(`[env] Loaded: ${path.basename(envPath)}`);
+      return;
+    }
+  }
+}
+loadEnvFile();
+
 import {
   queryAgentSessionsLogsRaw,
   queryAgentSessionsRawWithLogTokens,
@@ -45,6 +80,7 @@ import {
 } from "./digital-employee/digital-employee-service.mjs";
 
 import { queryOtelOverviewData } from "./otel-metrics/otel-overview-query.mjs";
+import { queryHostMonitor, queryHostMonitorOverview } from "./host-monitor/host-monitor-query.mjs";
 const port = Number(process.env.PORT ?? 8787);
 
 function sendJson(res, status, body) {
@@ -112,11 +148,14 @@ const server = http.createServer(async (req, res) => {
       const u = new URL(url, "http://127.0.0.1");
       const startDay = u.searchParams.get("startDay");
       const endDay = u.searchParams.get("endDay");
+      const isSummary = u.searchParams.get("summary") === "true";
       if (!startDay || !endDay) {
         sendJson(res, 400, { error: "missing startDay or endDay (YYYY-MM-DD)" });
         return;
       }
-      const data = await queryLlmCostDetail(startDay, endDay);
+      const data = isSummary
+        ? await import("./cost-analysis/agent-llm-cost-tables-query.mjs").then(m => m.queryLlmCostSummary(startDay, endDay))
+        : await import("./cost-analysis/agent-llm-cost-tables-query.mjs").then(m => m.queryLlmCostDetail(startDay, endDay));
       sendJson(res, 200, data);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -287,6 +326,7 @@ const server = http.createServer(async (req, res) => {
         users: u.searchParams.get("users") ? u.searchParams.get("users").split(",") : [],
         gateways: u.searchParams.get("gateways") ? u.searchParams.get("gateways").split(",") : [],
         models: u.searchParams.get("models") ? u.searchParams.get("models").split(",") : [],
+        sessionId: u.searchParams.get("sessionId") || "",
         page: Number(u.searchParams.get("page") ?? "1"),
         pageSize: Number(u.searchParams.get("pageSize") ?? "20"),
         sortKey: u.searchParams.get("sortKey") ?? "totalTokens",
@@ -438,6 +478,40 @@ const server = http.createServer(async (req, res) => {
       const u = new URL(url, "http://127.0.0.1");
       const data = await queryMonitorSessionTrend({
         trendDays: Number(u.searchParams.get("trendDays") ?? "14"),
+      });
+      sendJson(res, 200, data);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      sendJson(res, 500, { error: msg });
+    }
+    return;
+  }
+
+  // 主机监控 — 总览分析（多主机聚合、趋势、占比、Top排行）
+  if (url.startsWith("/api/host-monitor/overview")) {
+    try {
+      const u = new URL(url, "http://127.0.0.1");
+      const data = await queryHostMonitorOverview({
+        hours: Number(u.searchParams.get("hours") ?? "24"),
+        topLimit: Number(u.searchParams.get("topLimit") ?? "10"),
+      });
+      sendJson(res, 200, data);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      sendJson(res, 500, { error: msg });
+    }
+    return;
+  }
+
+  // 主机监控 — 单机详情（完整主机资源监控数据）
+  if (url.startsWith("/api/host-monitor")) {
+    try {
+      const u = new URL(url, "http://127.0.0.1");
+      const data = await queryHostMonitor({
+        hours: Number(u.searchParams.get("hours") ?? "1"),
+        hostname: u.searchParams.get("hostname") || undefined,
+        startIso: u.searchParams.get("startIso") || undefined,
+        endIso: u.searchParams.get("endIso") || undefined,
       });
       sendJson(res, 200, data);
     } catch (e) {

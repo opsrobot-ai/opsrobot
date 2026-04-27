@@ -5,8 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:mock": "VITE_MOCK=true vite",
+    "dev:mock": "cross-env VITE_MOCK=true vite",
     "api": "node backend/serveAgentSessionsApi.mjs",
+    "test:api": "node tests/api_validation.test.mjs && node tests/llm_cost_api.test.mjs",
+    "test:ui": "playwright test -c tests/playwright.config.js",
     "build": "vite build",
     "preview": "vite preview"
   },
@@ -21,6 +23,7 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "cross-env": "^7.0.3",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
     "postcss": "^8.4.49",

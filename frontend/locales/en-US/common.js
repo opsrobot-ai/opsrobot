@@ -41,7 +41,7 @@ export default {
   "nav.auditOverview": "Audit Overview",
   "nav.sessionAudit": "Session Traceability",
   "nav.logSearch": "Log search",
-  "nav.costAnalysis": "Productivity",
+  "nav.costAnalysis": "Manageable Costs",
   "nav.costOverview": "Cost Overview",
   "nav.costOverview2": "Session Cost Detail",
   "nav.agentCostDetail": "Agent Cost Detail",
@@ -52,6 +52,7 @@ export default {
   "nav.instanceMonitoring": "Cockpit",
   "nav.digitalEmployeeOverview": "Digital Employee Overview",
   "nav.digitalEmployeeList": "Digital employees",
+  "nav.hostMonitor": "Host Monitor",
 
   "page.panorama.title": "Overview",
   "page.panorama.subtitle": "Key metrics & orders at a glance · Real-time",
@@ -63,6 +64,8 @@ export default {
   "page.monitoring.subtitle": "System & resource monitoring",
   "page.monitorDashboard.title": "Monitor Dashboard",
   "page.monitorDashboard.subtitle": "Global runtime status & dashboard overview",
+  "page.hostMonitor.title": "Host Monitor",
+  "page.hostMonitor.subtitle": "Multi-host resource monitoring & performance analysis",
   "page.alerts.title": "Alerts",
   "page.alerts.subtitle": "Alerts & event handling",
   "page.audit.title": "Behavior Audit",
@@ -99,6 +102,7 @@ export default {
   "openclawInstance.tabRunOverview": "Run overview",
   "openclawInstance.tabRunDetail": "Run details",
   "openclawInstance.tabConfigChange": "Config changes",
+  "openclawInstance.tabHostMonitor": "Host Monitor",
   "openclawInstance.waitTelemetry": "Load data from Run overview first, or try again shortly.",
 
   "logSearch.queryLabel": "Full text",
