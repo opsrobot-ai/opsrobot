@@ -159,3 +159,4 @@ dist/
 .pnpm-store
 data-model/
 .cursor/plans
+mock-html/

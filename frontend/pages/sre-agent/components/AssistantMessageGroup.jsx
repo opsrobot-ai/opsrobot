@@ -2,11 +2,11 @@ import { memo, useMemo } from "react";
 import XMarkdown from "@ant-design/x-markdown";
 import {
   extractSreVizWorkQueue,
-  splitAssistantMessageOnFinalReportPaths,
   splitAssistantMessageOnVizFences,
   splitMessageAroundSreVizPathList,
   stripSrePathVizBoilerplateMarkdown,
 } from "../../../lib/sreMessageVizExtract.js";
+import { splitAssistantMessageOnSreReportPaths } from "../../../lib/sreReportPathExtract.js";
 import { extractParenChoiceGroups, stripParenChoiceBlocks } from "../choiceParsing.js";
 import { normalizeMarkdownForDisplay, stripOpenClawHiddenBlocks } from "../messageDisplayUtils.js";
 import AssistantBubble from "./AssistantBubble.jsx";
@@ -14,18 +14,21 @@ import ChoiceCards from "./ChoiceCards.jsx";
 import MarkdownPreWithCopy from "./MarkdownPreWithCopy.jsx";
 import ParenChoiceSelectors from "./ParenChoiceSelectors.jsx";
 import SreVizWorkspaceOpenButton from "./SreVizWorkspaceOpenButton.jsx";
-import FinalReportWorkspaceOpenButton from "./FinalReportWorkspaceOpenButton.jsx";
+import SreReportStageButton from "./SreReportStageButton.jsx";
 
 const mdComponents = { pre: MarkdownPreWithCopy };
 
 const bubbleShellClass =
   "sre-markdown min-w-0 w-full max-w-[95%] rounded-2xl rounded-tl-sm bg-white px-3.5 py-2.5 leading-relaxed text-gray-800 shadow-sm dark:bg-gray-800 dark:text-gray-100";
 
-/** 将正文中的 final_report.md 路径替换为「报告预览」按钮，其余走 XMarkdown */
-const AssistantMdWithFinalReportButtons = memo(function AssistantMdWithFinalReportButtons({ text, onOpenItem }) {
+/**
+ * 将正文中 5 种 SRE 阶段报告路径替换为可点击 Tab 跳转按钮，其余走 XMarkdown。
+ * 覆盖 stage1-4 + final（含原 final_report.md 场景）。
+ */
+const AssistantMdWithSreReportButtons = memo(function AssistantMdWithSreReportButtons({ text, onOpenItem }) {
   const segments = useMemo(() => {
     const raw = String(text ?? "");
-    const sp = splitAssistantMessageOnFinalReportPaths(raw);
+    const sp = splitAssistantMessageOnSreReportPaths(raw);
     return sp ? sp.parts : [{ type: "markdown", text: raw }];
   }, [text]);
 
@@ -42,7 +45,14 @@ const AssistantMdWithFinalReportButtons = memo(function AssistantMdWithFinalRepo
             />
           ) : null
         ) : (
-          <FinalReportWorkspaceOpenButton key={i} path={p.path} onOpen={onOpenItem} />
+          <SreReportStageButton
+            key={i}
+            path={p.path}
+            stage={p.stage}
+            label={p.label}
+            color={p.color}
+            onOpen={onOpenItem}
+          />
         ),
       )}
     </>
@@ -100,7 +110,7 @@ const AssistantMessageGroup = memo(function AssistantMessageGroup({
                 p.type === "markdown" ? (() => {
                   const cleaned = stripSrePathVizBoilerplateMarkdown(p.text, []);
                   return cleaned.trim() ? (
-                    <AssistantMdWithFinalReportButtons key={i} text={cleaned} onOpenItem={onOpenSreVizItem} />
+                    <AssistantMdWithSreReportButtons key={i} text={cleaned} onOpenItem={onOpenSreVizItem} />
                   ) : null;
                 })() : (
                   <SreVizWorkspaceOpenButton key={i} item={{ kind: "inline", model: p.model }} onOpen={onOpenSreVizItem} />
@@ -112,7 +122,7 @@ const AssistantMessageGroup = memo(function AssistantMessageGroup({
           <div className="flex w-full min-w-0 justify-start">
             <div className={`${bubbleShellClass} flex flex-col gap-2`}>
               {pathOnlySplit.before.trim() ? (
-                <AssistantMdWithFinalReportButtons text={pathOnlySplit.before} onOpenItem={onOpenSreVizItem} />
+                <AssistantMdWithSreReportButtons text={pathOnlySplit.before} onOpenItem={onOpenSreVizItem} />
               ) : null}
               <div className="flex w-full min-w-0 flex-col gap-2">
                 {pathOnlyItems.map((item, i) => (
@@ -120,14 +130,14 @@ const AssistantMessageGroup = memo(function AssistantMessageGroup({
                 ))}
               </div>
               {pathOnlySplit.after.trim() ? (
-                <AssistantMdWithFinalReportButtons text={pathOnlySplit.after} onOpenItem={onOpenSreVizItem} />
+                <AssistantMdWithSreReportButtons text={pathOnlySplit.after} onOpenItem={onOpenSreVizItem} />
               ) : null}
             </div>
           </div>
         ) : (
           <div className="flex w-full min-w-0 justify-start">
             <div className={`${bubbleShellClass} flex flex-col gap-2`}>
-              <AssistantMdWithFinalReportButtons text={bubbleText} onOpenItem={onOpenSreVizItem} />
+              <AssistantMdWithSreReportButtons text={bubbleText} onOpenItem={onOpenSreVizItem} />
             </div>
           </div>
         ))}

@@ -58,6 +58,18 @@ export function normalizeMarkdownForDisplay(text) {
   return promoteNumberedSectionLinesAfterH2(text);
 }
 
+/**
+ * Tab/卡片等纯文本展示：去掉 **…** 强调与行内 `…` 反引号，只保留可读文字（不解析为 HTML）。
+ */
+export function stripMarkdownBoldAndCodeForPlainText(value) {
+  let s = String(value ?? "");
+  s = s.replace(/`([^`]+)`/g, "$1");
+  s = s.replace(/`/g, "");
+  s = s.replace(/\*\*([^*]+)\*\*/g, "$1");
+  s = s.replace(/\*\*/g, "");
+  return s.trim();
+}
+
 /** 合法 GFM 表格分隔行（含对齐冒号） */
 function isGfmSeparatorRow(trimmedLine) {
   return /^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$/.test(trimmedLine);

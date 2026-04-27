@@ -1,4 +1,5 @@
 import WorkspaceRenderer from "../../../components/agui/WorkspaceRenderer.jsx";
+import SreReportWorkspace from "../../../components/agui/SreReportWorkspace.jsx";
 import { CHAT_SPLIT_MIN, USE_MOCK } from "../constants.js";
 import AgentPicker from "./AgentPicker.jsx";
 import AgentThinkingPanel from "./AgentThinkingPanel.jsx";
@@ -37,6 +38,11 @@ export default function SreAgentChatWorkspace({
   inputRef,
   respondConfirm,
   onOpenSreVizItem,
+  sreReportTabs,
+  activeTabId,
+  setActiveTabId,
+  onExecuteRecommendation,
+  reportActionsDisabled = false,
 }) {
   const latestStep =
     [...steps].reverse().find((s) => s.status === "running") ??
@@ -148,8 +154,20 @@ export default function SreAgentChatWorkspace({
         className={`group relative z-10 w-2 shrink-0 cursor-col-resize select-none after:absolute after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2 after:bg-gray-200 after:transition-colors dark:after:bg-gray-600 ${splitDragging ? "after:bg-primary" : "hover:after:bg-primary/60"}`}
       />
 
-      <div className="min-w-0 flex-1 overflow-y-auto bg-gray-100/50 p-5 dark:bg-gray-950/50">
-        <WorkspaceRenderer panels={workspacePanels} onAction={handleAction} />
+      <div className="min-w-0 flex-1 overflow-hidden bg-gray-100/50 dark:bg-gray-950/50">
+        {sreReportTabs && sreReportTabs.length > 0 ? (
+          <SreReportWorkspace
+            tabs={sreReportTabs}
+            activeTabId={activeTabId}
+            setActiveTabId={setActiveTabId}
+            onExecuteRecommendation={onExecuteRecommendation}
+            reportActionsDisabled={reportActionsDisabled}
+          />
+        ) : (
+          <div className="h-full overflow-y-auto p-5">
+            <WorkspaceRenderer panels={workspacePanels} onAction={handleAction} />
+          </div>
+        )}
       </div>
     </div>
   );

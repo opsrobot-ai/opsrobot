@@ -68,11 +68,24 @@ function resolveAllowedJsonFile(inputPath) {
   return resolveUnderOpenclawRoots(resolved, (realPath) => realPath.toLowerCase().endsWith(".json"));
 }
 
-function resolveAllowedFinalReportMdFile(inputPath) {
+const SRE_ALLOWED_MD_SUFFIXES = [
+  "_stage1_perception_report.md",
+  "_stage2_analysis_report.md",
+  "_stage3_reasoning_report.md",
+  "_stage4_execution_report.md",
+  "_final_report.md",
+];
+
+function isSreReportMdSuffix(p) {
+  const low = p.toLowerCase();
+  return SRE_ALLOWED_MD_SUFFIXES.some((s) => low.endsWith(s));
+}
+
+function resolveAllowedSreReportMdFile(inputPath) {
   const expanded = expandUserPath(inputPath);
   if (!expanded) return null;
   const resolved = path.resolve(expanded);
-  return resolveUnderOpenclawRoots(resolved, (realPath) => realPath.toLowerCase().endsWith("final_report.md"));
+  return resolveUnderOpenclawRoots(resolved, isSreReportMdSuffix);
 }
 
 function sendJson(res, status, body) {
@@ -113,7 +126,7 @@ export async function handleSreReportMdRead(req, res, rawUrl) {
     return;
   }
 
-  const safe = resolveAllowedFinalReportMdFile(filePath);
+  const safe = resolveAllowedSreReportMdFile(filePath);
   if (!safe) {
     sendJson(res, 403, { error: "Path not allowed or file not found" });
     return;

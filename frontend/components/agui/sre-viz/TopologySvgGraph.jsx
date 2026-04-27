@@ -12,12 +12,40 @@ import {
   topologyNodeAccent,
 } from "./sreVizTopologyCore.js";
 
+/**
+ * 将指针在 SVG 元素上的位置换算为当前 viewBox 内的归一化坐标 (0..1)，
+ * 与 preserveAspectRatio="xMidYMid meet" 的 letterbox 一致。
+ */
+function clientPointToViewBoxFrac(svgEl, clientX, clientY, vb) {
+  const rect = svgEl.getBoundingClientRect();
+  const px = clientX - rect.left;
+  const py = clientY - rect.top;
+  const rw = rect.width;
+  const rh = rect.height;
+  if (rw <= 0 || rh <= 0) return { fx: 0.5, fy: 0.5 };
+  const k = Math.min(rw / vb.w, rh / vb.h);
+  const drawW = vb.w * k;
+  const drawH = vb.h * k;
+  const ox = (rw - drawW) / 2;
+  const oy = (rh - drawH) / 2;
+  const ugx = vb.x + (px - ox) / k;
+  const ugy = vb.y + (py - oy) / k;
+  const fx = Math.max(0, Math.min(1, (ugx - vb.x) / vb.w));
+  const fy = Math.max(0, Math.min(1, (ugy - vb.y) / vb.h));
+  return { fx, fy };
+}
+
 export function TopologySvgGraph({ nodes, edges, colors, faultPathEdgeKeys = null }) {
   const wrapRef = useRef(null);
   const svgRef = useRef(null);
   const [cw, setCw] = useState(720);
   const [tip, setTip] = useState(null);
   const [vb, setVb] = useState({ x: 0, y: 0, w: 800, h: 400 });
+  const vbRef = useRef(vb);
+  vbRef.current = vb;
+  const [panning, setPanning] = useState(false);
+  /** @type {React.MutableRefObject<{ startX: number; startY: number; ox: number; oy: number; w: number; h: number } | null>} */
+  const panRef = useRef(null);
   const uid = useId().replace(/:/g, "");
   const markerId = `${uid}-topo-arr`;
   const markerFaultId = `${uid}-topo-arr-fault`;
@@ -54,25 +82,22 @@ export function TopologySvgGraph({ nodes, edges, colors, faultPathEdgeKeys = nul
     [width, height],
   );
 
-  const zoomIn = useCallback(() => {
-    setVb((prev) => {
-      const cx = prev.x + prev.w / 2;
-      const cy = prev.y + prev.h / 2;
-      const nw = prev.w * 0.82;
-      const nh = prev.h * 0.82;
-      return clampVb({ x: cx - nw / 2, y: cy - nh / 2, w: nw, h: nh });
-    });
-  }, [clampVb]);
+  /** (fx,fy) 为当前 viewBox 内归一化坐标 0..1，缩放后保持该点落在屏幕原位置 */
+  const zoomAt = useCallback(
+    (fx, fy, zoomOut) => {
+      setVb((prev) => {
+        const nw = zoomOut ? Math.min(width, prev.w * 1.2) : prev.w * 0.82;
+        const nh = zoomOut ? Math.min(height, prev.h * 1.2) : prev.h * 0.82;
+        const mx = prev.x + fx * prev.w;
+        const my = prev.y + fy * prev.h;
+        return clampVb({ x: mx - fx * nw, y: my - fy * nh, w: nw, h: nh });
+      });
+    },
+    [clampVb, width, height],
+  );
 
-  const zoomOut = useCallback(() => {
-    setVb((prev) => {
-      const cx = prev.x + prev.w / 2;
-      const cy = prev.y + prev.h / 2;
-      const nw = Math.min(width, prev.w * 1.2);
-      const nh = Math.min(height, prev.h * 1.2);
-      return clampVb({ x: cx - nw / 2, y: cy - nh / 2, w: nw, h: nh });
-    });
-  }, [clampVb, width, height]);
+  const zoomIn = useCallback(() => zoomAt(0.5, 0.5, false), [zoomAt]);
+  const zoomOut = useCallback(() => zoomAt(0.5, 0.5, true), [zoomAt]);
 
   const resetView = useCallback(() => {
     setVb({ x: 0, y: 0, w: width, h: height });
@@ -97,12 +122,13 @@ export function TopologySvgGraph({ nodes, edges, colors, faultPathEdgeKeys = nul
     if (!el) return undefined;
     const onWheel = (e) => {
       e.preventDefault();
-      if (e.deltaY > 0) zoomOut();
-      else zoomIn();
+      const v = vbRef.current;
+      const { fx, fy } = clientPointToViewBoxFrac(el, e.clientX, e.clientY, v);
+      zoomAt(fx, fy, e.deltaY > 0);
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, [zoomIn, zoomOut]);
+  }, [zoomAt]);
 
   const showNodeTip = (e, n) => {
     setTip({ x: e.clientX, y: e.clientY, lines: formatTopologyNodeTooltipLines(n) });
@@ -119,6 +145,67 @@ export function TopologySvgGraph({ nodes, edges, colors, faultPathEdgeKeys = nul
   const moveTip = (e) => setTip((p) => (p ? { ...p, x: e.clientX, y: e.clientY } : p));
   const hideTip = () => setTip(null);
 
+  const endPan = useCallback(() => {
+    panRef.current = null;
+    setPanning(false);
+  }, []);
+
+  const onSvgPointerDown = useCallback(
+    (e) => {
+      if (e.button !== 0 || !svgRef.current) return;
+      const el = svgRef.current;
+      const rect = el.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+      setVb((prev) => {
+        panRef.current = {
+          startX: e.clientX,
+          startY: e.clientY,
+          ox: prev.x,
+          oy: prev.y,
+          w: prev.w,
+          h: prev.h,
+        };
+        return prev;
+      });
+      setPanning(true);
+      try {
+        el.setPointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+    },
+    [],
+  );
+
+  const onSvgPointerMove = useCallback(
+    (e) => {
+      const d = panRef.current;
+      if (!d || !svgRef.current) return;
+      const el = svgRef.current;
+      const rect = el.getBoundingClientRect();
+      const scaleX = d.w / rect.width;
+      const scaleY = d.h / rect.height;
+      const nx = d.ox - (e.clientX - d.startX) * scaleX;
+      const ny = d.oy - (e.clientY - d.startY) * scaleY;
+      setVb((prev) => clampVb({ x: nx, y: ny, w: prev.w, h: prev.h }));
+    },
+    [clampVb],
+  );
+
+  const onSvgPointerUp = useCallback(
+    (e) => {
+      if (svgRef.current) {
+        try {
+          svgRef.current.releasePointerCapture(e.pointerId);
+        } catch {
+          /* ignore */
+        }
+      }
+      endPan();
+    },
+    [endPan],
+  );
+
   const topoFloatBtn =
     "flex h-9 w-9 shrink-0 items-center justify-center text-gray-600 transition-colors hover:bg-sky-50 hover:text-sky-600 active:bg-sky-100 dark:text-gray-300 dark:hover:bg-sky-950/45 dark:hover:text-sky-300 dark:active:bg-sky-900/55";
 
@@ -127,7 +214,7 @@ export function TopologySvgGraph({ nodes, edges, colors, faultPathEdgeKeys = nul
   return (
     <div
       ref={wrapRef}
-      className="relative mb-4 w-full overflow-hidden rounded-xl border border-gray-200/80 bg-gray-50/40 shadow-sm dark:border-gray-700 dark:bg-gray-900/40"
+      className="relative mb-4 flex w-full flex-col overflow-hidden rounded-xl border border-gray-200/80 bg-gray-50/40 shadow-sm dark:border-gray-700 dark:bg-gray-900/40"
       onMouseLeave={hideTip}
     >
       {tip ? (
@@ -150,22 +237,26 @@ export function TopologySvgGraph({ nodes, edges, colors, faultPathEdgeKeys = nul
         <p className="px-4 py-2.5 text-[11px] text-gray-500 dark:text-gray-400">
           拓扑视图 · 填充色=状态
           {faultKeys?.size ? " · 高亮连线=故障传播方向（流动动画）" : ""}
-          · 悬停节点或连线查看详情 · 画布可滚轮缩放
+          · 悬停节点或连线查看详情 · 按住左键拖动画布平移 · 滚轮以指针位置为中心缩放
         </p>
       </div>
 
-      <div className="relative">
+      <div className="relative min-h-0 flex-1">
         <div className="pointer-events-none absolute inset-x-0 top-0 z-10 bg-gradient-to-b from-white via-white/95 to-transparent px-4 pb-7 pt-2.5 dark:from-gray-950 dark:via-gray-950/95">
           <TopologyMapLegend colors={colors} />
         </div>
-        <div className="max-h-[min(520px,72vh)] overflow-auto bg-white pt-9 dark:bg-gray-950">
+        <div className="box-border flex h-[min(480px,calc(72vh-7rem))] max-h-[min(480px,calc(72vh-7rem))] w-full flex-col overflow-hidden bg-white p-5 pt-10 dark:bg-gray-950">
           <svg
             ref={svgRef}
             width="100%"
-            height={height}
+            height="100%"
             viewBox={`${vb.x} ${vb.y} ${vb.w} ${vb.h}`}
             preserveAspectRatio="xMidYMid meet"
-            className="block w-full min-w-[320px] text-gray-800 dark:text-gray-100"
+            className={`block min-h-0 min-w-0 flex-1 select-none text-gray-800 dark:text-gray-100 ${panning ? "cursor-grabbing" : "cursor-grab"}`}
+            onPointerDown={onSvgPointerDown}
+            onPointerMove={onSvgPointerMove}
+            onPointerUp={onSvgPointerUp}
+            onPointerCancel={onSvgPointerUp}
           >
             <defs>
               <marker id={markerId} markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">

@@ -21,6 +21,7 @@ import {
 } from "./constants.js";
 import { useAgentCatalog } from "./hooks/useAgentCatalog.js";
 import { useOpenClawSessionsList } from "./hooks/useOpenClawSessionsList.js";
+import { useSreReportTabs } from "./hooks/useSreReportTabs.js";
 import { readStoredChatSplitPx } from "./sessionUtils.js";
 import OpenClawSessionsAside from "./components/OpenClawSessionsAside.jsx";
 import SreAgentChatWorkspace from "./components/SreAgentChatWorkspace.jsx";
@@ -180,6 +181,21 @@ export default function SreAgent() {
   const isRunning = status === "running";
   const showChatWorkspace = messages.length > 0 || activeOpenClawSessionKey != null;
 
+  const { tabs: sreReportTabs, activeTabId, setActiveTabId } = useSreReportTabs(messages);
+
+  /**
+   * 统一的工作区项目点击处理：
+   * - { kind: "sre_tab", stage } → 切换右侧 Tab
+   * - 其他类型 → 交给 useAgui 的 openSreVizQueueItem（工作区面板）
+   */
+  const handleSreItemClick = useCallback((item) => {
+    if (item?.kind === "sre_tab") {
+      setActiveTabId(item.stage);
+      return;
+    }
+    return openSreVizQueueItem(item);
+  }, [openSreVizQueueItem, setActiveTabId]);
+
   /** 关闭会话窗口（返回落地页 / 无聊天区）时中止 OpenClaw 会话历史轮询 */
   useEffect(() => {
     if (!showChatWorkspace) {
@@ -246,6 +262,16 @@ export default function SreAgent() {
       sendMessage(t);
     },
     [input, isRunning, sendMessage],
+  );
+
+  /** 报告「推荐方案」执行：在当前会话发送该条推荐正文（纯文本，无附加前缀） */
+  const onExecuteRecommendation = useCallback(
+    (plainText) => {
+      const t = String(plainText ?? "").trim();
+      if (!t || isRunning) return;
+      handleSend(t);
+    },
+    [handleSend, isRunning],
   );
 
   const handleKeyDown = useCallback(
@@ -323,7 +349,12 @@ export default function SreAgent() {
       handleAction={handleAction}
       inputRef={inputRef}
       respondConfirm={respondConfirm}
-      onOpenSreVizItem={openSreVizQueueItem}
+      onOpenSreVizItem={handleSreItemClick}
+      sreReportTabs={sreReportTabs}
+      activeTabId={activeTabId}
+      setActiveTabId={setActiveTabId}
+      onExecuteRecommendation={onExecuteRecommendation}
+      reportActionsDisabled={isRunning}
     />
   );
 }

@@ -317,3 +317,89 @@ export function splitAssistantMessageOnFinalReportPaths(text) {
   if (last < src.length) parts.push({ type: "markdown", text: src.slice(last) });
   return { parts };
 }
+
+/**
+ * 从环境感知等 Markdown 全文中提取附件里的 viz JSON 路径（反引号或裸路径）。
+ * 用于 stage1 报告内引用的 metrics_trend.json / logs_distribution.json。
+ *
+ * @param {string} text
+ * @returns {{ metricsTrend: string | null; logsDistribution: string | null }}
+ */
+export function extractStage1VizAttachmentPaths(text) {
+  const src = String(text ?? "");
+  /** @type {{ metricsTrend: string | null; logsDistribution: string | null }} */
+  const out = { metricsTrend: null, logsDistribution: null };
+
+  const consider = (raw) => {
+    const p = String(raw ?? "").trim();
+    if (!p) return;
+    const low = p.toLowerCase();
+    if (low.endsWith("metrics_trend.json") && !out.metricsTrend) out.metricsTrend = p;
+    if (low.endsWith("logs_distribution.json") && !out.logsDistribution) out.logsDistribution = p;
+  };
+
+  const tickRe = /`([~./][^`\n]+?\.json)`/gi;
+  let m;
+  while ((m = tickRe.exec(src)) !== null) consider(m[1]);
+
+  const bareRe = /([~./][^\s`\]"'<>\n]*?\.json)/gi;
+  while ((m = bareRe.exec(src)) !== null) consider(m[1]);
+
+  return out;
+}
+
+/**
+ * 从异常分析（stage2）等 Markdown 全文中提取 trace_call_chain.json 路径（反引号或裸路径）。
+ *
+ * @param {string} text
+ * @returns {{ traceCallChain: string | null }}
+ */
+export function extractStage2VizAttachmentPaths(text) {
+  const src = String(text ?? "");
+  let traceCallChain = null;
+
+  const consider = (raw) => {
+    const p = String(raw ?? "").trim();
+    if (!p) return;
+    const low = p.toLowerCase();
+    if (low.endsWith("trace_call_chain.json") && !traceCallChain) traceCallChain = p;
+  };
+
+  const tickRe = /`([~./][^`\n]+?\.json)`/gi;
+  let m;
+  while ((m = tickRe.exec(src)) !== null) consider(m[1]);
+
+  const bareRe = /([~./][^\s`\]"'<>\n]*?\.json)/gi;
+  while ((m = bareRe.exec(src)) !== null) consider(m[1]);
+
+  return { traceCallChain };
+}
+
+/**
+ * 从根因推理（stage3）等 Markdown 全文中提取 topology_map.json / anomaly_pattern.json 路径。
+ *
+ * @param {string} text
+ * @returns {{ topologyMap: string | null; anomalyPattern: string | null }}
+ */
+export function extractStage3VizAttachmentPaths(text) {
+  const src = String(text ?? "");
+  /** @type {{ topologyMap: string | null; anomalyPattern: string | null }} */
+  const out = { topologyMap: null, anomalyPattern: null };
+
+  const consider = (raw) => {
+    const p = String(raw ?? "").trim();
+    if (!p) return;
+    const low = p.toLowerCase();
+    if (low.endsWith("topology_map.json") && !out.topologyMap) out.topologyMap = p;
+    if (low.endsWith("anomaly_pattern.json") && !out.anomalyPattern) out.anomalyPattern = p;
+  };
+
+  const tickRe = /`([~./][^`\n]+?\.json)`/gi;
+  let m;
+  while ((m = tickRe.exec(src)) !== null) consider(m[1]);
+
+  const bareRe = /([~./][^\s`\]"'<>\n]*?\.json)/gi;
+  while ((m = bareRe.exec(src)) !== null) consider(m[1]);
+
+  return out;
+}

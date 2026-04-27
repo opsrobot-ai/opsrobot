@@ -1,21 +1,25 @@
 /**
- * 纯 Markdown 消息面板：用于 Agent 推送的长文本说明（`@ant-design/x-markdown` 渲染）。
+ * 长 Markdown 报告面板：最终报告等走与 Tab 相同的 `SreReportTabContent` 富渲染（含候选方案卡片等）。
  */
 
-import XMarkdown from "@ant-design/x-markdown";
-import { normalizeMarkdownForDisplay } from "../../../pages/sre-agent/messageDisplayUtils.js";
+import { SreReportTabContent } from "../SreReportTabContent.jsx";
 import { Shell } from "./SreVizShell.jsx";
 
 export function SreMessageMarkdownPanel({ panel }) {
+  const markdown = String(panel.markdown ?? "").trim();
+  const title = panel.title || "消息";
+
   return (
-    <Shell title={panel.title || "消息"} accent="blue">
-      <div className="max-h-[70vh] overflow-y-auto rounded-lg border border-gray-100 bg-white px-3 py-2 text-[13px] dark:border-gray-700 dark:bg-gray-950/50">
-        <div className="sre-markdown prose prose-sm max-w-none dark:prose-invert">
-          <XMarkdown
-            content={normalizeMarkdownForDisplay(panel.markdown || "")}
-            streaming={{ hasNextChunk: false }}
-          />
-        </div>
+    <Shell title={title} accent="blue">
+      <div className="max-h-[70vh] min-h-0 overflow-y-auto rounded-lg border border-gray-100 bg-gray-50/40 px-2 py-2 dark:border-gray-700 dark:bg-gray-950/50">
+        <SreReportTabContent
+          tab={{
+            stage: "final",
+            markdown,
+            label: title,
+            status: "ready",
+          }}
+        />
       </div>
     </Shell>
   );
