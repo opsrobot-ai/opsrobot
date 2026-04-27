@@ -26,7 +26,7 @@ const HOST_CPU_LINE_COLORS = [
 ];
 
 /** 总览：各主机 CPU 多线（data 每行含 time + 各 hostname 列） */
-function MultiLineCpuChart({ data, hostnames }) {
+function MultiLineCpuChart({ data, hostnames, syncId }) {
   if (!data || data.length === 0 || !hostnames?.length) {
     return <p className="flex h-full items-center justify-center text-xs text-gray-400">{intl.get("hostMonitor.noData")}</p>;
   }
@@ -45,7 +45,7 @@ function MultiLineCpuChart({ data, hostnames }) {
 
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <RechartsLineChart data={data} margin={{ top: 28, right: 4, left: 0, bottom: 0 }}>
+      <RechartsLineChart data={data} margin={{ top: 28, right: 4, left: 0, bottom: 0 }} syncId={syncId}>
         <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
         <XAxis dataKey="time" tick={{ fontSize: 10 }} tickLine={false} tickFormatter={trendTick} />
         <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} width={36} tickFormatter={(v) => `${v}%`} />
@@ -78,7 +78,7 @@ function MultiLineCpuChart({ data, hostnames }) {
 }
 
 /** 总览：多主机多线（通用数值，非百分比） */
-function MultiLineMetricChart({ data, hostnames }) {
+function MultiLineMetricChart({ data, hostnames, syncId }) {
   if (!data || data.length === 0 || !hostnames?.length) {
     return <p className="flex h-full items-center justify-center text-xs text-gray-400">{intl.get("hostMonitor.noData")}</p>;
   }
@@ -98,7 +98,7 @@ function MultiLineMetricChart({ data, hostnames }) {
 
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <RechartsLineChart data={data} margin={{ top: 28, right: 4, left: 0, bottom: 0 }}>
+      <RechartsLineChart data={data} margin={{ top: 28, right: 4, left: 0, bottom: 0 }} syncId={syncId}>
         <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
         <XAxis dataKey="time" tick={{ fontSize: 10 }} tickLine={false} tickFormatter={trendTick} />
         <YAxis tick={{ fontSize: 10 }} width={48} tickFormatter={(v) => fmtVal(v)} />
@@ -174,7 +174,7 @@ function OnlineStatusStackedBarChart({ data }) {
 }
 
 /** 磁盘 IO：读 / 写双序列（MB，与网络趋势图样式一致） */
-function DiskIoDualChart({ data }) {
+function DiskIoDualChart({ data, syncId }) {
   if (!data || data.length === 0) {
     return <p className="flex h-full items-center justify-center text-xs text-gray-400">{intl.get("hostMonitor.noData")}</p>;
   }
@@ -197,7 +197,7 @@ function DiskIoDualChart({ data }) {
 
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <RechartsLineChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+      <RechartsLineChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} syncId={syncId}>
         <defs>
           <linearGradient id={readGrad} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor="#f59e0b" stopOpacity={0.3} />
@@ -249,7 +249,7 @@ function DiskIoDualChart({ data }) {
   );
 }
 
-function LineChart({ data, color, height = 208, yMax }) {
+function LineChart({ data, color, height = 208, yMax, syncId }) {
   if (!data || data.length === 0) {
     return <p className="flex h-full items-center justify-center text-xs text-gray-400">{intl.get("hostMonitor.noData")}</p>;
   }
@@ -272,7 +272,7 @@ function LineChart({ data, color, height = 208, yMax }) {
 
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <RechartsLineChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+      <RechartsLineChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} syncId={syncId}>
         <defs>
           <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor={color} stopOpacity={0.3} />
@@ -873,17 +873,6 @@ export default function HostMonitorOverview({ onHostClick, showHostTableSection 
 
   const top10RowClick = onHostClick ? handleTop10RowClick : undefined;
 
-  if (loading && !data) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="flex flex-col items-center gap-3">
-          <Icon name="loading" className="h-8 w-8 text-primary animate-spin" />
-          <span className="text-gray-500 dark:text-gray-400">{intl.get("hostMonitor.loading")}</span>
-        </div>
-      </div>
-    );
-  }
-
   const summary = data?.summary || {};
   const hostList = data?.hostList || [];
   const trends = data?.trends || {};
@@ -928,17 +917,30 @@ export default function HostMonitorOverview({ onHostClick, showHostTableSection 
   const cpuTrendData = downsample(ensureTrendData(cpuRaw, 0, tsLabels.length)).map((d, i) => ({ time: tsLabels[i] || '', value: parseFloat(d.utilization) || 0 }));
 
   const cpuByHostRaw = trends.cpuByHost;
-  const allTrendHostnames = (() => {
+  const allTrendHostnames = useMemo(() => {
     if (!cpuByHostRaw || !Array.isArray(cpuByHostRaw) || cpuByHostRaw.length === 0) return [];
     return cpuByHostRaw.map((h) => h.hostname).filter(Boolean);
-  })();
+  }, [cpuByHostRaw]);
   const effectiveTrendHostnames = (() => {
     if (allTrendHostnames.length === 0) return [];
     if (trendHostSelection === null) return allTrendHostnames;
     return allTrendHostnames.filter((h) => trendHostSelection.includes(h));
   })();
 
-  const trendChartsShowEmpty = allTrendHostnames.length > 0 && effectiveTrendHostnames.length === 0;
+  const trendChartsShowEmpty = trendStatMode === "split" && allTrendHostnames.length > 0 && effectiveTrendHostnames.length === 0;
+
+  // 主机集合变化（如 mock -> Doris）时，纠正残留筛选，避免趋势图整组“无数据”
+  useEffect(() => {
+    setTrendHostSelection((prev) => {
+      if (prev === null) return prev;
+      if (!Array.isArray(prev)) return null;
+      if (allTrendHostnames.length === 0) return null;
+      const next = prev.filter((hn) => allTrendHostnames.includes(hn));
+      if (next.length === 0 || next.length === allTrendHostnames.length) return null;
+      if (next.length === prev.length && next.every((hn, idx) => hn === prev[idx])) return prev;
+      return next;
+    });
+  }, [allTrendHostnames]);
 
   const filteredHostsForPicklist = allTrendHostnames.filter((hn) => {
     const q = trendHostFilterQuery.trim().toLowerCase();
@@ -978,8 +980,8 @@ export default function HostMonitorOverview({ onHostClick, showHostTableSection 
 
   const memoryByHostRaw = trends.memoryByHost;
   const diskByHostRaw = trends.diskByHost;
-  const memoryByHostChart = buildUtilMultiLineFromByHost(memoryByHostRaw);
-  const diskByHostChart = buildUtilMultiLineFromByHost(diskByHostRaw);
+  const memoryByHostChart = buildUtilMultiLineFromByHost(memoryByHostRaw, { padMissingAsNull: true });
+  const diskByHostChart = buildUtilMultiLineFromByHost(diskByHostRaw, { padMissingAsNull: true });
 
   const buildMergedUtilLineFromByHost = (raw, opts = {}) => {
     if (!raw || !Array.isArray(raw) || raw.length === 0) return null;
@@ -994,7 +996,8 @@ export default function HostMonitorOverview({ onHostClick, showHostTableSection 
     const timeRow = downsample(safeTs.map(fmtTs));
     const len = Math.min(timeRow.length, ...perHostDown.map((p) => p.pts.length));
     if (len === 0) return null;
-    return Array.from({ length: len }, (_, i) => {
+    let hasAnyPoint = false;
+    const rows = Array.from({ length: len }, (_, i) => {
       let sum = 0;
       let present = 0;
       for (const ph of perHostDown) {
@@ -1005,21 +1008,31 @@ export default function HostMonitorOverview({ onHostClick, showHostTableSection 
         sum += utilNum;
         present += 1;
       }
+      if (present > 0) hasAnyPoint = true;
       return { time: timeRow[i] || "", value: present ? sum / present : 0 };
     });
+    // 若按主机序列没有任何有效点，回退到总趋势，避免整图被 0 覆盖
+    if (!hasAnyPoint) return null;
+    return rows;
   };
 
   const cpuMergedLine = buildMergedUtilLineFromByHost(cpuByHostRaw, { padMissingAsNull: true });
-  const memMergedLine = buildMergedUtilLineFromByHost(memoryByHostRaw);
-  const diskMergedLine = buildMergedUtilLineFromByHost(diskByHostRaw);
+  const memMergedLine = buildMergedUtilLineFromByHost(memoryByHostRaw, { padMissingAsNull: true });
+  const diskMergedLine = buildMergedUtilLineFromByHost(diskByHostRaw, { padMissingAsNull: true });
 
-  const memTrendData = downsample(ensureTrendData(memRaw, 0, tsLabels.length)).map((d, i) => ({ time: tsLabels[i] || '', value: parseFloat(d.utilization) || 0 }));
+  const memTrendData = downsample(ensureTrendData(memRaw, 0, tsLabels.length)).map((d, i) => {
+    const util = parseFloat(d?.utilization);
+    if (Number.isFinite(util)) return { time: tsLabels[i] || "", value: util };
+    const used = parseFloat(d?.usedGB);
+    const free = parseFloat(d?.freeGB);
+    const total = (Number.isFinite(used) ? used : 0) + (Number.isFinite(free) ? free : 0);
+    return { time: tsLabels[i] || "", value: total > 0 ? (used / total) * 100 : 0 };
+  });
   const diskTrendData = downsample(ensureTrendData(diskRaw, 0, tsLabels.length)).map((d, i) => ({ time: tsLabels[i] || '', value: parseFloat(d.utilization) || 0 }));
 
   const networkByHostRaw = trends.networkByHost;
   const diskIoByHostRaw = trends.diskIoByHost;
   const netDualData = (() => {
-    if (trendChartsShowEmpty) return [];
     if (networkByHostRaw && Array.isArray(networkByHostRaw) && networkByHostRaw.length > 0) {
       const hnList = effectiveTrendHostnames.filter((hn) => networkByHostRaw.some((r) => r.hostname === hn));
       if (hnList.length > 0) {
@@ -1097,7 +1110,6 @@ export default function HostMonitorOverview({ onHostClick, showHostTableSection 
   const netTransmitByHostChart = buildNetworkMultiLine((pt) => parseFloat(pt?.transmitMB) || 0);
 
   const diskIoDualData = (() => {
-    if (trendChartsShowEmpty) return [];
     if (diskIoByHostRaw && Array.isArray(diskIoByHostRaw) && diskIoByHostRaw.length > 0) {
       const hnList = effectiveTrendHostnames.filter((hn) => diskIoByHostRaw.some((r) => r.hostname === hn));
       if (hnList.length > 0) {
@@ -1144,7 +1156,6 @@ export default function HostMonitorOverview({ onHostClick, showHostTableSection 
   })();
 
   const diskIoByHostChart = (() => {
-    if (trendChartsShowEmpty) return null;
     if (!diskIoByHostRaw || !Array.isArray(diskIoByHostRaw) || diskIoByHostRaw.length === 0) return null;
     const hostnames = effectiveTrendHostnames.filter((hn) => diskIoByHostRaw.some((r) => r.hostname === hn));
     if (hostnames.length === 0) return null;
@@ -1314,6 +1325,17 @@ export default function HostMonitorOverview({ onHostClick, showHostTableSection 
   const topCpu = enrichTopRankings(rankings.cpu, fbCpu, "cpu");
   const topMem = enrichTopRankings(rankings.memory, fbMem, "memory");
   const topDisk = enrichTopRankings(rankings.diskIo || rankings.disk, fbDisk, "disk");
+
+  if (loading && !data) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="flex flex-col items-center gap-3">
+          <Icon name="loading" className="h-8 w-8 text-primary animate-spin" />
+          <span className="text-gray-500 dark:text-gray-400">{intl.get("hostMonitor.loading")}</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -1630,12 +1652,12 @@ export default function HostMonitorOverview({ onHostClick, showHostTableSection 
                 <TrendChartHostEmpty />
               ) : trendStatSplit ? (
                 cpuByHostChart ? (
-                  <MultiLineCpuChart data={cpuByHostChart.rows} hostnames={cpuByHostChart.hostnames} />
+                  <MultiLineCpuChart data={cpuByHostChart.rows} hostnames={cpuByHostChart.hostnames} syncId="overview-resource-trend-sync" />
                 ) : (
-                  <LineChart data={cpuTrendData} color="#8b5cf6" yMax={100} />
+                  <LineChart data={cpuTrendData} color="#8b5cf6" yMax={100} syncId="overview-resource-trend-sync" />
                 )
               ) : (
-                <LineChart data={cpuMergedLine || cpuTrendData} color="#8b5cf6" yMax={100} />
+                <LineChart data={cpuMergedLine || cpuTrendData} color="#8b5cf6" yMax={100} syncId="overview-resource-trend-sync" />
               )}
             </div>
           </div>
@@ -1648,12 +1670,12 @@ export default function HostMonitorOverview({ onHostClick, showHostTableSection 
                 <TrendChartHostEmpty />
               ) : trendStatSplit ? (
                 memoryByHostChart ? (
-                  <MultiLineCpuChart data={memoryByHostChart.rows} hostnames={memoryByHostChart.hostnames} />
+                  <MultiLineCpuChart data={memoryByHostChart.rows} hostnames={memoryByHostChart.hostnames} syncId="overview-resource-trend-sync" />
                 ) : (
-                  <LineChart data={memTrendData} color="#3b82f6" yMax={100} />
+                  <LineChart data={memTrendData} color="#3b82f6" yMax={100} syncId="overview-resource-trend-sync" />
                 )
               ) : (
-                <LineChart data={memMergedLine || memTrendData} color="#3b82f6" yMax={100} />
+                <LineChart data={memMergedLine || memTrendData} color="#3b82f6" yMax={100} syncId="overview-resource-trend-sync" />
               )}
             </div>
           </div>
@@ -1666,12 +1688,12 @@ export default function HostMonitorOverview({ onHostClick, showHostTableSection 
                 <TrendChartHostEmpty />
               ) : trendStatSplit ? (
                 diskByHostChart ? (
-                  <MultiLineCpuChart data={diskByHostChart.rows} hostnames={diskByHostChart.hostnames} />
+                  <MultiLineCpuChart data={diskByHostChart.rows} hostnames={diskByHostChart.hostnames} syncId="overview-resource-trend-sync" />
                 ) : (
-                  <LineChart data={diskTrendData} color="#f97316" yMax={100} />
+                  <LineChart data={diskTrendData} color="#f97316" yMax={100} syncId="overview-resource-trend-sync" />
                 )
               ) : (
-                <LineChart data={diskMergedLine || diskTrendData} color="#f97316" yMax={100} />
+                <LineChart data={diskMergedLine || diskTrendData} color="#f97316" yMax={100} syncId="overview-resource-trend-sync" />
               )}
             </div>
           </div>
@@ -1679,50 +1701,43 @@ export default function HostMonitorOverview({ onHostClick, showHostTableSection 
             <h4 className="text-xs font-semibold text-gray-800 dark:text-gray-200">
               {trendStatSplit ? intl.get("hostMonitor.chartDiskIoTrendByHost") : intl.get("hostMonitor.chartDiskIoTrend")}
             </h4>
-            <p className="mt-0.5 text-[10px] text-gray-500 dark:text-gray-400">{intl.get("hostMonitor.chartDiskIoTrendHint")}</p>
             <div className="mt-2 h-52">
-              {trendChartsShowEmpty ? (
-                <TrendChartHostEmpty />
-              ) : trendStatSplit ? (
+              {trendStatSplit ? (
                 diskIoByHostChart ? (
-                  <MultiLineMetricChart data={diskIoByHostChart.rows} hostnames={diskIoByHostChart.hostnames} />
+                  <MultiLineMetricChart data={diskIoByHostChart.rows} hostnames={diskIoByHostChart.hostnames} syncId="overview-resource-trend-sync" />
                 ) : (
-                  <DiskIoDualChart data={diskIoDualData} />
+                  <DiskIoDualChart data={diskIoDualData} syncId="overview-resource-trend-sync" />
                 )
               ) : (
-                <DiskIoDualChart data={diskIoDualData} />
+                <DiskIoDualChart data={diskIoDualData} syncId="overview-resource-trend-sync" />
               )}
             </div>
           </div>
           <div className="rounded-xl border border-gray-100/80 bg-gray-50/30 p-3 dark:border-gray-800/80 dark:bg-gray-950/20">
             <h4 className="text-xs font-semibold text-gray-800 dark:text-gray-200">{intl.get("hostMonitor.chartNetworkInbound")}</h4>
             <div className="mt-2 h-52">
-              {trendChartsShowEmpty ? (
-                <TrendChartHostEmpty />
-              ) : trendStatSplit ? (
+              {trendStatSplit ? (
                 netReceiveByHostChart ? (
-                  <MultiLineMetricChart data={netReceiveByHostChart.rows} hostnames={netReceiveByHostChart.hostnames} />
+                  <MultiLineMetricChart data={netReceiveByHostChart.rows} hostnames={netReceiveByHostChart.hostnames} syncId="overview-resource-trend-sync" />
                 ) : (
-                  <LineChart data={netReceiveLine} color="#06b6d4" />
+                  <LineChart data={netReceiveLine} color="#06b6d4" syncId="overview-resource-trend-sync" />
                 )
               ) : (
-                <LineChart data={netReceiveLine} color="#06b6d4" />
+                <LineChart data={netReceiveLine} color="#06b6d4" syncId="overview-resource-trend-sync" />
               )}
             </div>
           </div>
           <div className="rounded-xl border border-gray-100/80 bg-gray-50/30 p-3 dark:border-gray-800/80 dark:bg-gray-950/20">
             <h4 className="text-xs font-semibold text-gray-800 dark:text-gray-200">{intl.get("hostMonitor.chartNetworkOutbound")}</h4>
             <div className="mt-2 h-52">
-              {trendChartsShowEmpty ? (
-                <TrendChartHostEmpty />
-              ) : trendStatSplit ? (
+              {trendStatSplit ? (
                 netTransmitByHostChart ? (
-                  <MultiLineMetricChart data={netTransmitByHostChart.rows} hostnames={netTransmitByHostChart.hostnames} />
+                  <MultiLineMetricChart data={netTransmitByHostChart.rows} hostnames={netTransmitByHostChart.hostnames} syncId="overview-resource-trend-sync" />
                 ) : (
-                  <LineChart data={netTransmitLine} color="#8b5cf6" />
+                  <LineChart data={netTransmitLine} color="#8b5cf6" syncId="overview-resource-trend-sync" />
                 )
               ) : (
-                <LineChart data={netTransmitLine} color="#8b5cf6" />
+                <LineChart data={netTransmitLine} color="#8b5cf6" syncId="overview-resource-trend-sync" />
               )}
             </div>
           </div>
@@ -1780,7 +1795,7 @@ export default function HostMonitorOverview({ onHostClick, showHostTableSection 
             <TopHostsTable
               variant="disk"
               data={topDisk}
-              metricLabel={intl.get("hostMonitor.diskUsage")}
+              metricLabel={intl.get("hostMonitor.diskUtilization")}
               valueFormatter={(v) => v.toFixed(1) + "%"}
               maxRows={10}
               onRowClick={top10RowClick}

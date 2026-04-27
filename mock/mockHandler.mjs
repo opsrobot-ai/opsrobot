@@ -195,7 +195,10 @@ export function handleMockRequest(url, res) {
   if (url.startsWith("/api/host-monitor")) {
     const u = new URL(url, "http://mock.local");
     const hostname = u.searchParams.get("hostname") || "";
-    sendJson(res, 200, mockHostMonitorData(hostname));
+    const startIso = u.searchParams.get("startIso") || "";
+    const endIso = u.searchParams.get("endIso") || "";
+    const hours = u.searchParams.get("hours") || "";
+    sendJson(res, 200, mockHostMonitorData({ hostname, startIso, endIso, hours }));
     return true;
   }
 

@@ -33,10 +33,11 @@ function formatBytes(bytes) {
 
 /**
  * 单机详情 Mock（hostname 与总览列表一致）
- * @param {string} [hostname]
+ * @param {{ hostname?: string, startIso?: string, endIso?: string, hours?: number | string }} [opts]
  */
-export function mockHostMonitorData(hostname = "") {
+export function mockHostMonitorData(opts = {}) {
   const now = new Date();
+  const hostname = opts?.hostname || "";
   const displayName = hostname && String(hostname).trim() ? String(hostname).trim() : hostName(0);
   const seed = strSeed(displayName);
   const cpuU = (18 + rnd(seed, 1) * 55).toFixed(1);
@@ -45,13 +46,111 @@ export function mockHostMonitorData(hostname = "") {
   const healthRoll = rnd(seed, 4);
   const healthStatus = healthRoll > 0.88 ? "critical" : healthRoll > 0.72 ? "warning" : "healthy";
 
+  const parseInputDate = (s) => {
+    if (!s) return null;
+    const str = String(s).trim();
+    if (!str) return null;
+    const m = str.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/);
+    if (m) {
+      const y = Number(m[1]);
+      const mo = Number(m[2]) - 1;
+      const d = Number(m[3]);
+      const hh = Number(m[4]);
+      const mm = Number(m[5]);
+      const ss = Number(m[6] ?? "0");
+      const dt = new Date(y, mo, d, hh, mm, ss);
+      if (Number.isNaN(dt.getTime())) return null;
+      return dt;
+    }
+    const dt = new Date(str);
+    if (Number.isNaN(dt.getTime())) return null;
+    return dt;
+  };
+
+  const startInput = parseInputDate(opts?.startIso);
+  const endInput = parseInputDate(opts?.endIso);
+  const hoursInput = Number(opts?.hours);
+
+  let startDt = null;
+  let endDt = null;
+  if (startInput && endInput && endInput.getTime() > startInput.getTime()) {
+    startDt = startInput;
+    endDt = endInput;
+  } else if (Number.isFinite(hoursInput) && hoursInput > 0) {
+    const h = Math.min(Math.max(hoursInput, 1), 168);
+    endDt = now;
+    startDt = new Date(now.getTime() - h * 3600000);
+  } else {
+    endDt = now;
+    startDt = new Date(now.getTime() - 24 * 3600000);
+  }
+
+  const rangeHours = Math.min(
+    168,
+    Math.max(1, Math.ceil((endDt.getTime() - startDt.getTime()) / 3600000)),
+  );
+
+  const timestamps = [];
+  const pointCount = Math.max(2, Math.floor((endDt.getTime() - startDt.getTime()) / 3600000) + 1);
+  for (let i = 0; i < pointCount; i += 1) {
+    timestamps.push(new Date(startDt.getTime() + i * 3600000).toISOString());
+  }
+
+  const cpuBase = Number(cpuU);
+  const memBase = Number(memU);
+  const cpuUtilization = timestamps.map((_, i) => {
+    const wave = Math.sin((i / Math.max(8, pointCount)) * Math.PI * 2) * 6;
+    const noise = (rnd(seed, 200 + i) - 0.5) * 5;
+    const v = Math.min(99.5, Math.max(0, cpuBase + wave + noise));
+    return Number(v.toFixed(1));
+  });
+  const memoryUtilization = timestamps.map((_, i) => {
+    const wave = Math.sin((i / Math.max(10, pointCount)) * Math.PI * 2 + 1.1) * 4;
+    const noise = (rnd(seed, 300 + i) - 0.5) * 4;
+    const v = Math.min(99.5, Math.max(0, memBase + wave + noise));
+    return Number(v.toFixed(1));
+  });
+  const loadAverage = timestamps.map((_, i) => {
+    const l1Base = 0.8 + rnd(seed, 21) * 6;
+    const l1Wave = Math.sin((i / Math.max(8, pointCount)) * Math.PI * 2 + 0.6) * 0.55;
+    const l1Noise = (rnd(seed, 400 + i) - 0.5) * 0.4;
+    const load1m = Math.max(0.05, l1Base + l1Wave + l1Noise);
+    const load5m = Math.max(0.05, load1m * (0.88 + rnd(seed, 500 + i) * 0.12));
+    const load15m = Math.max(0.05, load5m * (0.88 + rnd(seed, 600 + i) * 0.12));
+    return {
+      load1m: Number(load1m.toFixed(2)),
+      load5m: Number(load5m.toFixed(2)),
+      load15m: Number(load15m.toFixed(2)),
+    };
+  });
+
+  /** 与 Doris `queryNetworkTrendData` 一致：每点 { receiveMB, transmitMB }（MB，两位小数） */
+  const network = timestamps.map((_, i) => {
+    const wave = Math.sin((i / Math.max(8, pointCount)) * Math.PI * 2 + 0.3) * 18;
+    const rx = 55 + rnd(seed, 800 + i) * 120 + wave;
+    const tx = 45 + rnd(seed, 900 + i) * 95 + wave * 0.85;
+    return {
+      receiveMB: Math.max(0.1, rx).toFixed(2),
+      transmitMB: Math.max(0.1, tx).toFixed(2),
+    };
+  });
+
+  const diskMaxUtilization = timestamps.map((_, i) => {
+    const wave = Math.sin((i / Math.max(10, pointCount)) * Math.PI * 2 + 0.5) * 5;
+    const noise = (rnd(seed, 1000 + i) - 0.5) * 4;
+    const v = Math.min(99.5, Math.max(0, Number(diskU) + wave + noise));
+    return Number(v.toFixed(1));
+  });
+
+  const onlineStatus = timestamps.map(() => 1);
+
   return {
     generatedAt: now.toISOString(),
     dataTimestamp: now.toISOString(),
     timeRange: {
-      start: new Date(now.getTime() - 3600000).toISOString(),
-      end: now.toISOString(),
-      hours: 1,
+      start: startDt.toISOString(),
+      end: endDt.toISOString(),
+      hours: rangeHours,
     },
 
     hostInfo: {
@@ -216,9 +315,66 @@ export function mockHostMonitorData(hostname = "") {
       zombie: rnd(seed, 33) > 0.92 ? 1 : 0,
       total: 200 + Math.floor(rnd(seed, 34) * 100),
     },
+    processDetails: [
+      {
+        pid: 1,
+        name: "systemd",
+        user: "root",
+        cpuPercent: Number((0.2 + rnd(seed, 910) * 0.8).toFixed(1)),
+        memoryPercent: Number((0.4 + rnd(seed, 911) * 0.8).toFixed(1)),
+        state: "sleeping",
+        command: "/usr/lib/systemd/systemd --system --deserialize=35",
+      },
+      {
+        pid: 878,
+        name: "node",
+        user: "ops",
+        cpuPercent: Number((8 + rnd(seed, 912) * 15).toFixed(1)),
+        memoryPercent: Number((4 + rnd(seed, 913) * 10).toFixed(1)),
+        state: "running",
+        command: "node backend/server.mjs --env=dev",
+      },
+      {
+        pid: 1024,
+        name: "otelcol",
+        user: "otel",
+        cpuPercent: Number((2 + rnd(seed, 914) * 6).toFixed(1)),
+        memoryPercent: Number((1 + rnd(seed, 915) * 4).toFixed(1)),
+        state: "running",
+        command: "/usr/local/bin/otelcol --config /etc/otel/config.yaml",
+      },
+      {
+        pid: 1356,
+        name: "sshd",
+        user: "root",
+        cpuPercent: Number((0.1 + rnd(seed, 916) * 0.9).toFixed(1)),
+        memoryPercent: Number((0.2 + rnd(seed, 917) * 0.6).toFixed(1)),
+        state: "sleeping",
+        command: "sshd: /usr/sbin/sshd -D [listener] 0 of 10-100 startups",
+      },
+      {
+        pid: 2015,
+        name: "python",
+        user: "ops",
+        cpuPercent: Number((1 + rnd(seed, 918) * 7).toFixed(1)),
+        memoryPercent: Number((0.8 + rnd(seed, 919) * 3).toFixed(1)),
+        state: "stopped",
+        command: "python monitor_worker.py --queue host-check",
+      },
+    ],
 
     healthStatus,
     alerts: [],
+
+    trends: {
+      timestamps,
+      cpuUtilization,
+      memoryUtilization,
+      diskMaxUtilization,
+      network,
+      loadAverage,
+      onlineStatus,
+    },
   };
 }
 

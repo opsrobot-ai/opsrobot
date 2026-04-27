@@ -510,6 +510,8 @@ const server = http.createServer(async (req, res) => {
       const data = await queryHostMonitor({
         hours: Number(u.searchParams.get("hours") ?? "1"),
         hostname: u.searchParams.get("hostname") || undefined,
+        startIso: u.searchParams.get("startIso") || undefined,
+        endIso: u.searchParams.get("endIso") || undefined,
       });
       sendJson(res, 200, data);
     } catch (e) {
