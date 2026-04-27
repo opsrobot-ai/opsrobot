@@ -31,6 +31,15 @@ import {
   buildDigitalEmployeeOverview,
   buildDigitalEmployeeProfile,
 } from "../backend/digital-employee/digital-employee-service.mjs";
+import {
+  queryCronRunsPage,
+  queryCronRunsOverviewMetrics,
+  queryCronRunsRunOverviewCharts,
+  queryCronJobsForTaskDetailList,
+  queryCronJobRunEvents,
+} from "../backend/cron-jobs/cron-runs-query.mjs";
+import { attachListRunSummariesToJobs } from "../backend/cron-jobs/job-list-run-summary.mjs";
+import { readJobRunEvents, readLocalJobsDocument } from "../backend/cron-jobs/local-jobs-data.mjs";
 
 function sendJson(res, status, body) {
   res.statusCode = status;
@@ -52,6 +61,13 @@ function sendJson(res, status, body) {
  * - GET /api/session-cost-options?startDay=&endDay=
 * - GET /api/digital-employees/overview?days=
  * - GET /api/digital-employees/profile?agentName=&days=&sessionKey=
+ * - GET /api/cron-runs-overview?startIso=&endIso=
+ * - GET /api/cron-runs-run-overview?startIso=&endIso=
+ * - GET /api/cron-runs?page=&pageSize=&jobId=&startIso=&endIso=&agentId=&status=&q=
+ * - GET /api/cron-jobs — 任务详情列表（Doris）
+ * - GET /api/cron-jobs/:jobId/run-events?limit=
+ * - GET /api/local-jobs — data/jobs.json
+ * - GET /api/local-jobs/:jobId/run-events?limit=
  */
 export function agentSessionsDevApi() {
   const useMock = process.env.VITE_MOCK === "true";
@@ -449,6 +465,118 @@ export function agentSessionsDevApi() {
           } catch (e) {
             console.error("[otel-overview] Error:", e);
             const msg = e instanceof Error ? `${e.message}\n${e.stack}` : String(e);
+            sendJson(res, 500, { error: msg });
+          }
+          return;
+        }
+
+        if (url.startsWith("/api/local-jobs")) {
+          try {
+            const u = new URL(url, "http://vite.local");
+            const pathname = u.pathname.replace(/\/+$/, "") || u.pathname;
+            if (pathname === "/api/local-jobs") {
+              const doc = readLocalJobsDocument();
+              const jobs = attachListRunSummariesToJobs(doc.jobs);
+              sendJson(res, 200, { version: doc.version, jobs });
+              return;
+            }
+            const m = /^\/api\/local-jobs\/([^/]+)\/run-events$/.exec(pathname);
+            if (m) {
+              const limit = Number(u.searchParams.get("limit") ?? "50");
+              const all = u.searchParams.get("all") === "1" || u.searchParams.get("all") === "true";
+              const data = readJobRunEvents(m[1], { limit, all });
+              sendJson(res, 200, {
+                jobId: data.jobId,
+                events: data.events,
+                totalLines: data.totalLines,
+              });
+              return;
+            }
+            sendJson(res, 404, { error: "not found" });
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            const code = msg === "invalid jobId" ? 400 : 500;
+            sendJson(res, code, { error: msg });
+          }
+          return;
+        }
+
+        if (url.startsWith("/api/cron-jobs")) {
+          try {
+            const u = new URL(url, "http://vite.local");
+            const pathname = u.pathname.replace(/\/+$/, "") || u.pathname;
+            if (pathname === "/api/cron-jobs") {
+              const data = await queryCronJobsForTaskDetailList();
+              sendJson(res, 200, data);
+              return;
+            }
+            const m = /^\/api\/cron-jobs\/([^/]+)\/run-events$/.exec(pathname);
+            if (m) {
+              const limit = Number(u.searchParams.get("limit") ?? "500");
+              const data = await queryCronJobRunEvents(m[1], {
+                limit,
+                startIso: u.searchParams.get("startIso"),
+                endIso: u.searchParams.get("endIso"),
+              });
+              sendJson(res, 200, data);
+              return;
+            }
+            sendJson(res, 404, { error: "not found" });
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            const code = msg === "invalid jobId" ? 400 : 500;
+            sendJson(res, code, { error: msg });
+          }
+          return;
+        }
+
+        if (url.startsWith("/api/cron-runs-overview")) {
+          try {
+            const u = new URL(url, "http://vite.local");
+            const data = await queryCronRunsOverviewMetrics({
+              startIso: u.searchParams.get("startIso"),
+              endIso: u.searchParams.get("endIso"),
+            });
+            sendJson(res, 200, data);
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            sendJson(res, 500, { error: msg });
+          }
+          return;
+        }
+
+        if (url.startsWith("/api/cron-runs-run-overview")) {
+          try {
+            const u = new URL(url, "http://vite.local");
+            const data = await queryCronRunsRunOverviewCharts({
+              startIso: u.searchParams.get("startIso"),
+              endIso: u.searchParams.get("endIso"),
+              jobId: u.searchParams.get("jobId"),
+            });
+            sendJson(res, 200, data);
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            sendJson(res, 500, { error: msg });
+          }
+          return;
+        }
+
+        if (url.startsWith("/api/cron-runs")) {
+          try {
+            const u = new URL(url, "http://vite.local");
+            const data = await queryCronRunsPage({
+              page: Number(u.searchParams.get("page") ?? "1"),
+              pageSize: Number(u.searchParams.get("pageSize") ?? "20"),
+              jobId: u.searchParams.get("jobId"),
+              startIso: u.searchParams.get("startIso"),
+              endIso: u.searchParams.get("endIso"),
+              agentId: u.searchParams.get("agentId"),
+              status: u.searchParams.get("status"),
+              q: u.searchParams.get("q"),
+            });
+            sendJson(res, 200, data);
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
             sendJson(res, 500, { error: msg });
           }
           return;

@@ -100,7 +100,7 @@ export default function FullChainTraceability({ setHeaderExtra }) {
 
   return (
     <div className="space-y-6">
-      <CostTimeRangeFilter activeDays={activeDays} onPreset={setActiveDays} />
+      <CostTimeRangeFilter activeDays={activeDays} onPreset={(p) => setActiveDays(p.days ?? 7)} />
 
       <section className="app-card p-4 sm:p-6">
         <h2 className="text-sm font-semibold text-gray-900 border-b border-gray-100 pb-3 mb-6 dark:text-gray-100 dark:border-gray-800">{intl.get("fullChain.sessionList")}</h2>

@@ -5,8 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:mock": "VITE_MOCK=true vite",
+    "dev:mock": "cross-env VITE_MOCK=true vite",
     "api": "node backend/serveAgentSessionsApi.mjs",
+    "dump:cron-runs-columns": "node scripts/dump-cron-runs-columns.mjs",
+    "introspect:cron-runs-log-attributes": "node scripts/introspect-cron-runs-log-attributes.mjs",
+    "write:cron-jobs-md": "node scripts/write-cron-jobs-md.mjs",
     "build": "vite build",
     "preview": "vite preview"
   },
@@ -21,6 +24,7 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "cross-env": "^7.0.3",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
     "postcss": "^8.4.49",

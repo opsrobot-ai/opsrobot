@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import CopyButton from "../components/CopyButton.jsx";
 import CodeBlock from "../components/CodeBlock.jsx";
 import LoadingSpinner from "../components/LoadingSpinner.jsx";
@@ -1423,8 +1423,10 @@ export default function SessionAudit({ setHeaderExtra }) {
   const [pageSize, setPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
   const [query, setQuery] = useState("");
   const [detailRow, setDetailRow] = useState(null);
+  /** 运行日志等入口：预填搜索后自动打开与 session_id 精确匹配的那条详情 */
+  const openDetailFromNavRef = useRef(false);
 
-  // 数字员工下钻：预填搜索（读取一次即清除），版本 1.0.1
+  // 数字员工 / 运行日志下钻：预填搜索（读取一次即清除），版本 1.0.1
   useEffect(() => {
     try {
       const v = sessionStorage.getItem("openclaw-session-audit-query");
@@ -1432,10 +1434,27 @@ export default function SessionAudit({ setHeaderExtra }) {
         setQuery(String(v).trim());
         sessionStorage.removeItem("openclaw-session-audit-query");
       }
+      if (sessionStorage.getItem("openclaw-session-audit-open-detail") === "1") {
+        sessionStorage.removeItem("openclaw-session-audit-open-detail");
+        openDetailFromNavRef.current = true;
+      }
     } catch {
       /* ignore */
     }
   }, []);
+
+  useEffect(() => {
+    if (!openDetailFromNavRef.current) return;
+    const q = query.trim();
+    if (rows.length === 0) return;
+    if (!q) {
+      openDetailFromNavRef.current = false;
+      return;
+    }
+    const hit = rows.find((r) => String(r.session_id ?? "") === q);
+    openDetailFromNavRef.current = false;
+    if (hit) setDetailRow(hit);
+  }, [rows, query]);
   useEffect(() => {
     if (detailRow) {
       setHeaderExtra(

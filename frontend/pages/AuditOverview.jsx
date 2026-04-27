@@ -87,7 +87,7 @@ export default function AuditOverview() {
 
   return (
     <div className="space-y-8">
-      <CostTimeRangeFilter activeDays={activeDays} onPreset={setActiveDays} />
+      <CostTimeRangeFilter activeDays={activeDays} onPreset={(p) => setActiveDays(p.days ?? 7)} />
 
       {error && (
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/40 dark:text-amber-200">

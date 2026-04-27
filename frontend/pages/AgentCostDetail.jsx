@@ -170,7 +170,7 @@ export default function AgentCostDetail() {
 
       <CostTimeRangeFilter
         activeDays={activeDays}
-        onPreset={setActiveDays}
+        onPreset={(p) => setActiveDays(p.days ?? 7)}
       />
 
       <section className="app-card p-4 sm:p-6">

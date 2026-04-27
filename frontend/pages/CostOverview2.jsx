@@ -237,8 +237,8 @@ export default function CostOverview2() {
     });
   };
 
-  const handlePreset = (days) => {
-    setFilters((f) => ({ ...f, timePreset: days }));
+  const handlePreset = (p) => {
+    setFilters((f) => ({ ...f, timePreset: p.days ?? 7 }));
   };
 
   const totalPages = total === 0 ? 0 : Math.ceil(total / pageSize);

@@ -187,7 +187,7 @@ export default function ConfigChange() {
         </p>
       )}
 
-      <CostTimeRangeFilter activeDays={activeDays} onPreset={setActiveDays} />
+      <CostTimeRangeFilter activeDays={activeDays} onPreset={(p) => setActiveDays(p.days ?? 7)} />
 
       <section className="app-card p-4 sm:p-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">

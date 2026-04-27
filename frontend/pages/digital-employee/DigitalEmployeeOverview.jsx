@@ -341,8 +341,8 @@ export default function DigitalEmployeeOverview() {
     <div className="space-y-6">
       <CostTimeRangeFilter
         activeDays={activeDays}
-        onPreset={(d) => {
-          setActiveDays(d);
+        onPreset={(p) => {
+          setActiveDays(p.days ?? 7);
           resetInteractions();
         }}
       />

@@ -440,7 +440,7 @@ export default function DigitalEmployeePortrait() {
 
       <CostTimeRangeFilter
         activeDays={queryMode.type === "days" ? queryMode.days : 7}
-        onPreset={(d) => setQueryMode({ type: "days", days: d })}
+        onPreset={(p) => setQueryMode({ type: "days", days: p.days ?? 7 })}
       />
       {queryMode.type === "hours" && (
         <p className="text-xs text-gray-500 dark:text-gray-400">

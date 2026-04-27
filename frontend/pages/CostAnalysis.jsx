@@ -226,7 +226,7 @@ export default function CostAnalysis() {
       {/* 顶部工具栏 */}
       <CostTimeRangeFilter
         activeDays={trendDays}
-        onPreset={setTrendDays}
+        onPreset={(p) => setTrendDays(p.days ?? 7)}
       />
 
       {/* KPI：紧凑高度 + 左侧色条（整体约缩短 1/4） */}
