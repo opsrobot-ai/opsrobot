@@ -8,6 +8,7 @@ export default function TablePagination({
   total,
   onPageChange,
   className = "",
+  leadingControls = null,
   trailingControls = null,
   loading = false,
 }) {
@@ -21,16 +22,19 @@ export default function TablePagination({
     <div
       className={`flex flex-wrap items-center justify-between gap-4 ${className}`}
     >
-      {loading ? (
-        <p className="text-xs text-gray-500 dark:text-gray-400">{intl.get("common.loadingList")}</p>
-      ) : (
-        <p className="text-xs text-gray-400 dark:text-gray-500">
-          {intl.get("common.pageInfo", { start, end, total })}
-          {!trailingControls && (
-            <span> · {intl.get("common.pageSize", { size: pageSize })}</span>
-          )}
-        </p>
-      )}
+      <div className="flex flex-wrap items-center gap-2">
+        {leadingControls}
+        {loading ? (
+          <p className="text-xs text-gray-500 dark:text-gray-400">{intl.get("common.loadingList")}</p>
+        ) : (
+          <p className="text-xs text-gray-400 dark:text-gray-500">
+            {intl.get("common.pageInfo", { start, end, total })}
+            {!trailingControls && (
+              <span> · {intl.get("common.pageSize", { size: pageSize })}</span>
+            )}
+          </p>
+        )}
+      </div>
       <div
         className={`flex flex-wrap items-center gap-4 ${loading ? "pointer-events-none opacity-50" : ""}`}
         aria-hidden={loading || undefined}

@@ -17,6 +17,7 @@ import SessionAudit from "./SessionAudit.jsx";
 import AuditOverview from "./AuditOverview.jsx";
 import LogSearch from "./LogSearch.jsx";
 import MonitorDashboard from "./monitor-dashboard/index.jsx";
+import DataManagementModule from "./data-management/DataManagementModule.jsx";
 
 const PAGE_META_KEYS = {
   panorama: { title: "page.panorama.title", subtitle: "page.panorama.subtitle" },
@@ -36,6 +37,7 @@ const PAGE_META_KEYS = {
   "instance-monitoring": { title: "page.instanceMonitoring.title", subtitle: "page.instanceMonitoring.subtitle" },
   "monitor-dashboard": { title: "page.monitorDashboard.title", subtitle: "page.monitorDashboard.subtitle" },
   "host-monitor": { title: "page.hostMonitor.title", subtitle: "page.hostMonitor.subtitle" },
+  "data-management": { title: "page.dataManagement.title", subtitle: "page.dataManagement.subtitle" },
 };
 
 const NAV_KEYS = [
@@ -74,6 +76,9 @@ const NAV_KEYS = [
     ],
   },
 ];
+
+/** 侧栏底部固定项（与主导航分离）；子功能在「数据管理」页内 Tab 展示 */
+const NAV_BOTTOM_KEYS = [{ id: "data-management", labelKey: "nav.dataManagement", icon: "database" }];
 
 const STATS_KEYS = [
   {
@@ -269,6 +274,10 @@ export default function Dashboard() {
       localStorage.setItem("nav-active", "openclaw-instance");
       return "openclaw-instance";
     }
+    if (v === "data-catalog") {
+      localStorage.setItem("nav-active", "data-management");
+      return "data-management";
+    }
     return v || "audit-overview";
   });
   const [navGroupOpen, setNavGroupOpenRaw] = useState(() => {
@@ -279,7 +288,11 @@ export default function Dashboard() {
         "security-audit": true,
       };
     } catch {
-      return { "full-time-monitoring": true, "cost-analysis": true, "security-audit": true };
+      return {
+        "full-time-monitoring": true,
+        "cost-analysis": true,
+        "security-audit": true,
+      };
     }
   });
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -359,6 +372,13 @@ export default function Dashboard() {
 
   const crumbs = useMemo(() => {
     for (const item of NAV_KEYS) {
+      if (item.id === activeNav) return [{ id: item.id, labelKey: item.labelKey }];
+      if (item.children) {
+        const child = item.children.find((c) => c.id === activeNav);
+        if (child) return [{ id: child.id, labelKey: child.labelKey }];
+      }
+    }
+    for (const item of NAV_BOTTOM_KEYS) {
       if (item.id === activeNav) return [{ id: item.id, labelKey: item.labelKey }];
       if (item.children) {
         const child = item.children.find((c) => c.id === activeNav);
@@ -523,6 +543,129 @@ export default function Dashboard() {
           })}
         </nav>
 
+        <div className="shrink-0 space-y-0.5 border-t border-gray-100 p-2 pb-14 dark:border-gray-800">
+          {NAV_BOTTOM_KEYS.map((item) => {
+            if (!item.children) {
+              const active = activeNav === item.id;
+              if (sidebarCollapsed) {
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    title={intl.get(item.labelKey)}
+                    onClick={() => {
+                      setActiveNav(item.id);
+                      setSidebarOpen(false);
+                    }}
+                    className={[
+                      "group relative flex w-full items-center justify-center rounded-lg py-2.5 transition-colors duration-200",
+                      active
+                        ? "bg-primary-soft text-primary shadow-sm dark:bg-primary/15 dark:text-primary"
+                        : "text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800",
+                    ].join(" ")}
+                  >
+                    <Icon
+                      name={item.icon}
+                      className={`h-5 w-5 ${active ? "text-primary" : "text-gray-400 dark:text-gray-500"}`}
+                    />
+                    <span className="pointer-events-none absolute left-full top-1/2 z-50 mx-2 -translate-y-1/2 whitespace-nowrap rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-lg opacity-0 transition-opacity duration-150 group-hover:opacity-100 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 lg:block hidden" />
+                  </button>
+                );
+              }
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => {
+                    setActiveNav(item.id);
+                    setSidebarOpen(false);
+                  }}
+                  className={[
+                    "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors duration-200",
+                    active
+                      ? "bg-primary-soft text-primary shadow-sm dark:bg-primary/15 dark:text-primary"
+                      : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100",
+                  ].join(" ")}
+                >
+                  <Icon name={item.icon} className={active ? "h-5 w-5 text-primary" : "h-5 w-5 text-gray-400 dark:text-gray-500"} />
+                  {intl.get(item.labelKey)}
+                </button>
+              );
+            }
+
+            const childActive = item.children.some((c) => c.id === activeNav);
+            return (
+              <div key={item.id} className="space-y-0.5">
+                {sidebarCollapsed ? (
+                  <CollapsedNavGroupFlyout
+                    item={item}
+                    childActive={childActive}
+                    activeNav={activeNav}
+                    setActiveNav={setActiveNav}
+                    setSidebarOpen={setSidebarOpen}
+                  />
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setNavGroupOpen((prev) => ({
+                          ...prev,
+                          [item.id]: !(prev[item.id] ?? true),
+                        }))
+                      }
+                      className={[
+                        "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors duration-200",
+                        childActive
+                          ? "text-primary"
+                          : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100",
+                      ].join(" ")}
+                    >
+                      <Icon
+                        name={item.icon}
+                        className={childActive ? "h-5 w-5 text-primary" : "h-5 w-5 text-gray-400 dark:text-gray-500"}
+                      />
+                      <span className="flex-1 text-left">{intl.get(item.labelKey)}</span>
+                      <Icon
+                        name="chevron"
+                        className={[
+                          "h-4 w-4 shrink-0 text-gray-400 transition-transform duration-200",
+                          (navGroupOpen[item.id] ?? true) ? "rotate-180" : "",
+                        ].join(" ")}
+                      />
+                    </button>
+                    {(navGroupOpen[item.id] ?? true) && (
+                      <div className="ml-[22px] space-y-0.5 border-l border-gray-200 dark:border-gray-700">
+                        {item.children.map((child) => {
+                          const active = activeNav === child.id;
+                          return (
+                            <button
+                              key={child.id}
+                              type="button"
+                              onClick={() => {
+                                setActiveNav(child.id);
+                                setSidebarOpen(false);
+                              }}
+                              className={[
+                                "flex ml-2 mr-2 rounded-md py-2 pl-[14px] pr-2 text-left text-sm transition-colors duration-200",
+                                active
+                                  ? "bg-primary-soft font-medium text-primary shadow-sm dark:bg-primary/15 dark:text-primary"
+                                  : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100",
+                              ].join(" ")}
+                            >
+                              {intl.get(child.labelKey)}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
         <div className="absolute bottom-4 right-3 hidden lg:flex lg:items-end lg:justify-end">
           <button
             type="button"
@@ -606,7 +749,9 @@ export default function Dashboard() {
           </div>
         </header>
 
-        <main className={`flex-1 overflow-y-auto ${activeNav === "monitor-dashboard" ? "flex flex-col" : "p-6"}`}>
+        <main
+          className={`flex-1 overflow-y-auto ${activeNav === "monitor-dashboard" || activeNav === "data-management" ? "flex min-h-0 flex-col" : "p-6"}`}
+        >
           {activeNav === "openclaw-instance" ? (
             <OpenClawInstance />
           ) : activeNav === "monitor-dashboard" ? (
@@ -631,6 +776,8 @@ export default function Dashboard() {
             <SessionAudit setHeaderExtra={setHeaderExtra} />
           ) : activeNav === "log-search" ? (
             <LogSearch />
+          ) : activeNav === "data-management" ? (
+            <DataManagementModule />
           ) : activeNav === "traceability" ? (
             <FullChainTraceability setHeaderExtra={setHeaderExtra} />
           ) : (

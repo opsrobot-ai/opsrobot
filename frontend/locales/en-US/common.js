@@ -53,6 +53,21 @@ export default {
   "nav.digitalEmployeeOverview": "Digital Employee Overview",
   "nav.digitalEmployeeList": "Digital employees",
   "nav.hostMonitor": "Host Monitor",
+  "nav.dataManagement": "Data Management",
+  "nav.dataCatalog": "Data Sources",
+  "nav.dataView": "Data View",
+  "nav.metricModel": "Metric Model",
+
+  "page.dataManagement.title": "Data Management",
+  "page.dataManagement.subtitle": "Data sources & multi-catalog metadata",
+
+  "page.dataView.title": "Data View",
+  "page.dataView.subtitle": "Cross-source browsing, query results & visualization",
+  "page.dataView.placeholder": "Under construction — add SQL/charts, saved views and sharing here.",
+
+  "page.metricModel.title": "Metric Model",
+  "page.metricModel.subtitle": "Metric definitions, dimensions & measures",
+  "page.metricModel.placeholder": "Under construction — define atomic/composite metrics, bind data sources, and publish definitions.",
 
   "page.panorama.title": "Overview",
   "page.panorama.subtitle": "Key metrics & orders at a glance · Real-time",
@@ -66,6 +81,9 @@ export default {
   "page.monitorDashboard.subtitle": "Global runtime status & dashboard overview",
   "page.hostMonitor.title": "Host Monitor",
   "page.hostMonitor.subtitle": "Multi-host resource monitoring & performance analysis",
+  "page.dataCatalog.title": "Data Sources",
+  "page.dataCatalog.subtitle": "Metadata, assets, and taxonomy browsing",
+  "page.dataCatalog.placeholder": "Hook your data catalog here. This is a placeholder for now.",
   "page.alerts.title": "Alerts",
   "page.alerts.subtitle": "Alerts & event handling",
   "page.audit.title": "Behavior Audit",

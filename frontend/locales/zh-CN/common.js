@@ -53,6 +53,21 @@ export default {
   "nav.digitalEmployeeOverview": "数字员工概览",
   "nav.digitalEmployeeList": "数字员工",
   "nav.hostMonitor": "主机监控",
+  "nav.dataManagement": "数据管理",
+  "nav.dataCatalog": "数据源",
+  "nav.dataView": "数据视图",
+  "nav.metricModel": "指标模型",
+
+  "page.dataManagement.title": "数据管理",
+  "page.dataManagement.subtitle": "数据源与多 Catalog 元数据",
+
+  "page.dataView.title": "数据视图",
+  "page.dataView.subtitle": "跨数据源浏览、查询结果与可视化",
+  "page.dataView.placeholder": "功能开发中，可在此接入 SQL/图表、保存视图与分享。",
+
+  "page.metricModel.title": "指标模型",
+  "page.metricModel.subtitle": "指标口径、维度度量与派生逻辑",
+  "page.metricModel.placeholder": "功能开发中，可在此定义原子/复合指标、绑定数据源与发布口径说明。",
 
   "page.panorama.title": "数据总览",
   "page.panorama.subtitle": "关键指标与订单一览 · 实时更新",
@@ -66,6 +81,9 @@ export default {
   "page.monitorDashboard.subtitle": "全局运行状态与大屏概览",
   "page.hostMonitor.title": "主机监控",
   "page.hostMonitor.subtitle": "多主机资源监控与性能分析",
+  "page.dataCatalog.title": "数据源",
+  "page.dataCatalog.subtitle": "元数据、资产与分类浏览",
+  "page.dataCatalog.placeholder": "数据目录功能可在此接入。当前为占位页面。",
   "page.alerts.title": "告警事件",
   "page.alerts.subtitle": "告警与事件处理",
   "page.audit.title": "行为审计",

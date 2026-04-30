@@ -152,6 +152,14 @@ export default function Icon({ name, className = "h-5 w-5" }) {
           <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
         </svg>
       );
+    case "table":
+      return (
+        <svg className={common} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5M3.75 17.25h16.5" />
+          <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5v15m7.5-15v15" />
+          <rect x="3.75" y="4.5" width="16.5" height="15" rx="1.5" />
+        </svg>
+      );
     case "close":
       return (
         <svg className={common} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
@@ -361,6 +369,22 @@ export default function Icon({ name, className = "h-5 w-5" }) {
           <path strokeLinecap="round" strokeLinejoin="round" d="M6.429 9.75L2.25 12l4.179 2.25m0-4.5l5.571 3 5.571-3m-11 4.5l5.571 3m0 0l5.571-3m-5.571 3V21m-5.571-9.75L2.25 12m13.5-2.25L21 12l-4.179 2.25m0 0L12 17.25l-4.82-2.625" />
         </svg>
       );
+    case "folder":
+      return (
+        <svg className={common} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M2.25 6.75A2.25 2.25 0 014.5 4.5h5.38c.597 0 1.17.237 1.591.659l.87.87c.422.422.994.659 1.591.659H19.5a2.25 2.25 0 012.25 2.25v8.25A2.25 2.25 0 0119.5 19.5h-15A2.25 2.25 0 012.25 17.25V6.75z"
+          />
+        </svg>
+      );
+    case "plus":
+      return (
+        <svg className={common} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+        </svg>
+      );
     case "user":
       return (
         <svg className={common} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
@@ -447,6 +471,56 @@ export default function Icon({ name, className = "h-5 w-5" }) {
           <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 8.25V6a2.25 2.25 0 00-2.25-2.25H6A2.25 2.25 0 003.75 6v8.25A2.25 2.25 0 006 16.5h2.25m8.25-8.25H18a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25h-1.5m-7.5 0v3h-3v-3h3z" />
         </svg>
       );
+    case "pencil":
+      return (
+        <svg className={common} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487a2.25 2.25 0 113.182 3.182L8.25 19.464 3 21l1.536-5.25 11.794-11.263z" />
+        </svg>
+      );
+    case "trash":
+      return (
+        <svg className={common} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.75h4.5m-9 2.25h13.5m-1.125 0-.89 12.46a2.25 2.25 0 01-2.244 2.09H9.509a2.25 2.25 0 01-2.244-2.09L6.375 6m4.125 3.75v6m3-6v6" />
+        </svg>
+      );
+    case "logoMysql":
+      return <svg className={common} viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#1f6feb" /><text x="12" y="16" textAnchor="middle" fontSize="9" fill="#fff">My</text></svg>;
+    case "logoPostgresql":
+      return <svg className={common} viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#336791" /><text x="12" y="16" textAnchor="middle" fontSize="8" fill="#fff">Pg</text></svg>;
+    case "logoOracle":
+      return <svg className={common} viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#c74634" /><text x="12" y="16" textAnchor="middle" fontSize="8" fill="#fff">Or</text></svg>;
+    case "logoSqlserver":
+      return <svg className={common} viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#cc2927" /><text x="12" y="16" textAnchor="middle" fontSize="8" fill="#fff">MS</text></svg>;
+    case "logoTidb":
+      return <svg className={common} viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#e61b41" /><text x="12" y="16" textAnchor="middle" fontSize="8" fill="#fff">Ti</text></svg>;
+    case "logoMongodbbi":
+      return <svg className={common} viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#13aa52" /><text x="12" y="16" textAnchor="middle" fontSize="8" fill="#fff">Mg</text></svg>;
+    case "logoImpala":
+      return <svg className={common} viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#3b82f6" /><text x="12" y="16" textAnchor="middle" fontSize="8" fill="#fff">Im</text></svg>;
+    case "logoDoris":
+      return <svg className={common} viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#14b8a6" /><text x="12" y="16" textAnchor="middle" fontSize="8" fill="#fff">Do</text></svg>;
+    case "logoClickhouse":
+      return <svg className={common} viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#f59e0b" /><text x="12" y="16" textAnchor="middle" fontSize="8" fill="#fff">CH</text></svg>;
+    case "logoElasticsearch":
+      return <svg className={common} viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#2563eb" /><text x="12" y="16" textAnchor="middle" fontSize="7" fill="#fff">ES</text></svg>;
+    case "logoStarrocks":
+      return <svg className={common} viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#f59e0b" /><text x="12" y="16" textAnchor="middle" fontSize="7" fill="#fff">SR</text></svg>;
+    case "logoHive":
+      return <svg className={common} viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#f59e0b" /><text x="12" y="16" textAnchor="middle" fontSize="8" fill="#fff">Hv</text></svg>;
+    case "logoIceberg":
+      return <svg className={common} viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#06b6d4" /><text x="12" y="16" textAnchor="middle" fontSize="8" fill="#fff">Ic</text></svg>;
+    case "logoHudi":
+      return <svg className={common} viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#8b5cf6" /><text x="12" y="16" textAnchor="middle" fontSize="8" fill="#fff">Hu</text></svg>;
+    case "logoRedshift":
+      return <svg className={common} viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#2563eb" /><text x="12" y="16" textAnchor="middle" fontSize="7" fill="#fff">RS</text></svg>;
+    case "logoJdbc":
+      return <svg className={common} viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#64748b" /><text x="12" y="16" textAnchor="middle" fontSize="8" fill="#fff">J</text></svg>;
+    case "logoPaimon":
+      return <svg className={common} viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#0ea5e9" /><text x="12" y="16" textAnchor="middle" fontSize="8" fill="#fff">Pa</text></svg>;
+    case "logoFileLocalExcelCsv":
+      return <svg className={common} viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="3" fill="#16a34a" /><text x="12" y="16" textAnchor="middle" fontSize="8" fill="#fff">X</text></svg>;
+    case "logoFileRemoteExcelCsv":
+      return <svg className={common} viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="3" fill="#16a34a" /><path d="M8 12h8M12 8v8" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" /></svg>;
     default:
       return null;
   }

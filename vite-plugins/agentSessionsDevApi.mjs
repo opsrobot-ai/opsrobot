@@ -55,9 +55,8 @@ function loadEnvFile() {
             (value.startsWith("'") && value.endsWith("'"))) {
           value = value.slice(1, -1);
         }
-        if (!process.env[key]) {
-          process.env[key] = value;
-        }
+        // 以项目 .env 为准，避免系统环境变量残留（如 DORIS_HOST=doris）导致连错地址
+        process.env[key] = value;
       }
       console.log(`[dev-api:env] ✅ Loaded: ${path.basename(envPath)}`);
       return;
@@ -98,6 +97,11 @@ export function agentSessionsDevApi() {
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
         const url = req.url || "";
+        if (url.startsWith("/api/catalog")) {
+          const { handleCatalogApi } = await import("../backend/catalog/handleCatalogApi.mjs");
+          await handleCatalogApi(req, res);
+          return;
+        }
         if (req.method !== "GET") return next();
 
         // Mock 模式：使用静态数据，无需数据库

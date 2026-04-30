@@ -36,9 +36,8 @@ function loadEnvFile() {
             (value.startsWith("'") && value.endsWith("'"))) {
           value = value.slice(1, -1);
         }
-        if (!process.env[key]) {
-          process.env[key] = value;
-        }
+        // 以项目 .env 为准，避免系统环境变量残留（如 DORIS_HOST=doris）导致连错地址
+        process.env[key] = value;
       }
       console.log(`[env] Loaded: ${path.basename(envPath)}`);
       return;
@@ -90,6 +89,11 @@ function sendJson(res, status, body) {
 
 const server = http.createServer(async (req, res) => {
   const url = req.url || "";
+  if (url.startsWith("/api/catalog")) {
+    const { handleCatalogApi } = await import("./catalog/handleCatalogApi.mjs");
+    await handleCatalogApi(req, res);
+    return;
+  }
   if (req.method !== "GET") {
     res.writeHead(404);
     res.end();
@@ -526,6 +530,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(port, "0.0.0.0", () => {
+  console.log(`[agent-sessions] http://127.0.0.1:${port}/api/catalog/list`);
   console.log(`[agent-sessions] http://127.0.0.1:${port}/api/monitor-dashboard`);
   console.log(`[agent-sessions] http://127.0.0.1:${port}/api/monitor-session`);
   console.log(`[agent-sessions] http://127.0.0.1:${port}/api/digital-employees/overview`);
