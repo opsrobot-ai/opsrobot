@@ -219,7 +219,7 @@ export function mockAgentSessions() {
     {
       session_id: "sess_shrimpx9y8z7w6v5",
       session_key: "scm-shrimp-20260414",
-      agent_name: "供应链协同 · 员工虾",
+      agent_name: "供应链协同",
       log_attributes: JSON.stringify({
         model: "claude-3-opus",
         modelProvider: "anthropic",

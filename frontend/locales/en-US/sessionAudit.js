@@ -1,10 +1,4 @@
 export default {
-  "sessionAudit.overview.coreMetrics": "Core Metrics",
-  "sessionAudit.overview.totalSessions": "Total Sessions",
-  "sessionAudit.overview.totalTokens": "Total Tokens",
-  "sessionAudit.overview.totalToolCalls": "Total Tool Calls",
-  "sessionAudit.overview.highRiskSessions": "High-Risk Sessions",
-  "sessionAudit.overview.successRate": "Session Success Rate",
   "sessionAudit.sessionList": "Session List",
   "sessionAudit.searchPlaceholder": "Search session key, session ID, agent, channel, source, model…",
   "sessionAudit.securityQueueHint": "Risk-first audit queue for triaging sessions that need investigation.",

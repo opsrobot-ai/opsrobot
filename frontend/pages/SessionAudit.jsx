@@ -3,6 +3,7 @@ import CopyButton from "../components/CopyButton.jsx";
 import CodeBlock from "../components/CodeBlock.jsx";
 import LoadingSpinner from "../components/LoadingSpinner.jsx";
 import TablePagination, { DEFAULT_TABLE_PAGE_SIZE } from "../components/TablePagination.jsx";
+import CostTimeRangeFilter from "../components/CostTimeRangeFilter.jsx";
 import {
   agentSessionsLogsRowsToLines,
   mapAgentSessionRows,
@@ -44,11 +45,6 @@ function formatMs(ms) {
 function num(n) {
   if (n == null || Number.isNaN(Number(n))) return "—";
   return Number(n).toLocaleString("zh-CN");
-}
-
-function pct(v) {
-  if (v == null || Number.isNaN(Number(v))) return "—";
-  return `${(Number(v) * 100).toFixed(1)}%`;
 }
 
 /** 溯源时间线节点：与「风险感知」同源（高/中/低/健康） */
@@ -169,13 +165,13 @@ function NetUrlHighlight({ url }) {
   const u = String(url ?? "");
   const m = u.match(/^(https?:\/\/)([^/?#]+)([^]*)$/i);
   if (!m) {
-    return <span className="break-all font-medium text-sky-800">{u}</span>;
+    return <span className="break-all font-medium text-sky-800 dark:text-sky-200">{u}</span>;
   }
   return (
     <span className="break-all">
-      <span className="text-sky-600">{m[1]}</span>
-      <span className="font-semibold text-violet-700">{m[2]}</span>
-      <span className="text-gray-800">{m[3]}</span>
+      <span className="text-sky-600 dark:text-sky-300">{m[1]}</span>
+      <span className="font-semibold text-violet-700 dark:text-violet-300">{m[2]}</span>
+      <span className="text-gray-800 dark:text-gray-200">{m[3]}</span>
     </span>
   );
 }
@@ -185,19 +181,19 @@ function NetCommandHighlight({ command }) {
   const c = command == null ? "" : String(command);
   if (!c) return <span className="text-gray-400">—</span>;
   const match = c.match(/^(\S+)([\s\S]*)$/);
-  if (!match) return <span className="text-gray-900">{c}</span>;
+  if (!match) return <span className="text-gray-900 dark:text-gray-100">{c}</span>;
   return (
     <span className="break-all">
-      <span className="font-semibold text-amber-800">{match[1]}</span>
-      <span className="text-gray-800">{match[2]}</span>
+      <span className="font-semibold text-amber-800 dark:text-amber-200">{match[1]}</span>
+      <span className="text-gray-800 dark:text-gray-200">{match[2]}</span>
     </span>
   );
 }
 
 function netFileOpBadgeClass(op) {
   const o = (op ?? "write").toLowerCase();
-  if (o === "edit") return "bg-blue-50 text-blue-800 ring-blue-200/80";
-  return "bg-orange-50 text-orange-800 ring-orange-200/80";
+  if (o === "edit") return "bg-blue-50 text-blue-800 ring-blue-200/80 dark:bg-blue-950/40 dark:text-blue-200 dark:ring-blue-500/30";
+  return "bg-orange-50 text-orange-800 ring-orange-200/80 dark:bg-orange-950/40 dark:text-orange-200 dark:ring-orange-500/30";
 }
 
 const RISK_CATEGORY_LABEL = {
@@ -215,22 +211,22 @@ const RISK_CATEGORY_LABEL = {
 function riskSeverityPanelClass(sev) {
   switch (sev) {
     case "high":
-      return "border-l-red-500 bg-red-50/90";
+      return "border-l-red-500 bg-red-50/90 dark:bg-red-950/30";
     case "medium":
-      return "border-l-amber-500 bg-amber-50/80";
+      return "border-l-amber-500 bg-amber-50/80 dark:bg-amber-950/30";
     default:
-      return "border-l-slate-400 bg-slate-50/90";
+      return "border-l-slate-400 bg-slate-50/90 dark:bg-slate-900/50";
   }
 }
 
 function riskSeverityBadgeClass(sev) {
   switch (sev) {
     case "high":
-      return "bg-red-100 text-red-800 ring-red-200/80";
+      return "bg-red-100 text-red-800 ring-red-200/80 dark:bg-red-950/50 dark:text-red-200 dark:ring-red-500/30";
     case "medium":
-      return "bg-amber-100 text-amber-900 ring-amber-200/80";
+      return "bg-amber-100 text-amber-900 ring-amber-200/80 dark:bg-amber-950/50 dark:text-amber-200 dark:ring-amber-500/30";
     default:
-      return "bg-slate-100 text-slate-700 ring-slate-200/80";
+      return "bg-slate-100 text-slate-700 ring-slate-200/80 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-600/80";
   }
 }
 
@@ -300,23 +296,23 @@ function evidenceBadgeClass(active) {
 function kindBadgeClass(kind) {
   switch (kind) {
     case "session":
-      return "bg-blue-50 text-blue-800 ring-blue-600/15";
+      return "bg-blue-50 text-blue-800 ring-blue-600/15 dark:bg-blue-950/40 dark:text-blue-200 dark:ring-blue-400/30";
     case "user":
-      return "bg-slate-100 text-slate-800 ring-slate-500/15";
+      return "bg-slate-100 text-slate-800 ring-slate-500/15 dark:bg-slate-800 dark:text-slate-200 dark:ring-slate-600/30";
     case "assistant":
-      return "bg-primary-soft text-primary ring-primary/20";
+      return "bg-primary-soft text-primary ring-primary/20 dark:bg-primary/20 dark:text-primary-light";
     case "toolResult":
-      return "bg-amber-50 text-amber-900 ring-amber-600/15";
+      return "bg-amber-50 text-amber-900 ring-amber-600/15 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-500/30";
     case "model_change":
-      return "bg-violet-50 text-violet-800 ring-violet-600/15";
+      return "bg-violet-50 text-violet-800 ring-violet-600/15 dark:bg-violet-950/40 dark:text-violet-200 dark:ring-violet-500/30";
     case "thinking_level_change":
-      return "bg-fuchsia-50 text-fuchsia-800 ring-fuchsia-600/15";
+      return "bg-fuchsia-50 text-fuchsia-800 ring-fuchsia-600/15 dark:bg-fuchsia-950/40 dark:text-fuchsia-200 dark:ring-fuchsia-500/30";
     case "snapshot":
-      return "bg-cyan-50 text-cyan-800 ring-cyan-600/15";
+      return "bg-cyan-50 text-cyan-800 ring-cyan-600/15 dark:bg-cyan-950/40 dark:text-cyan-200 dark:ring-cyan-500/30";
     case "error":
-      return "bg-red-50 text-red-800 ring-red-600/20";
+      return "bg-red-50 text-red-800 ring-red-600/20 dark:bg-red-950/40 dark:text-red-200 dark:ring-red-500/30";
     default:
-      return "bg-gray-100 text-gray-700 ring-gray-500/15";
+      return "bg-gray-100 text-gray-700 ring-gray-500/15 dark:bg-gray-800 dark:text-gray-300 dark:ring-gray-600/30";
   }
 }
 
@@ -328,22 +324,22 @@ function ChatAssistantMessageBody({ msg, strArgs }) {
         if (!c || !c.type) return null;
         if (c.type === "text" && c.text) {
           return (
-            <p key={i} className="whitespace-pre-wrap break-words text-sm leading-relaxed text-gray-800">
+            <p key={i} className="whitespace-pre-wrap break-words text-sm leading-relaxed text-gray-800 dark:text-gray-200">
               {c.text}
             </p>
           );
         }
         if (c.type === "thinking" && c.thinking) {
           return (
-            <details key={i} className="rounded-lg border border-violet-200/80 bg-violet-50/70 px-3 py-2 text-xs text-violet-900">
-              <summary className="cursor-pointer select-none font-medium text-violet-800">{intl.get("sessionAudit.thinking")}</summary>
+            <details key={i} className="rounded-lg border border-violet-200/80 bg-violet-50/70 px-3 py-2 text-xs text-violet-900 dark:border-violet-700/40 dark:bg-violet-950/40 dark:text-violet-200">
+              <summary className="cursor-pointer select-none font-medium text-violet-800 dark:text-violet-200">{intl.get("sessionAudit.thinking")}</summary>
               <p className="mt-2 whitespace-pre-wrap break-words leading-relaxed">{c.thinking}</p>
             </details>
           );
         }
         if (c.type === "toolCall") {
           return (
-            <div key={i} className="rounded-lg border border-gray-200 bg-gray-50/90 px-3 pb-2 pt-1">
+            <div key={i} className="rounded-lg border border-gray-200 bg-gray-50/90 px-3 pb-2 pt-1 dark:border-gray-700 dark:bg-gray-800/70">
               <div className="mb-1 text-xs font-semibold text-primary">
                 {intl.get("sessionAudit.toolCall")} · <span className="font-mono">{c.name ?? "—"}</span>
               </div>
@@ -592,9 +588,9 @@ function SessionAuditDetail({ row }) {
           <div className="flex flex-1 flex-col justify-between border-gray-100 dark:border-gray-800 lg:border-r lg:pr-6">
             <div className="flex items-start gap-4">
               <div className={["flex h-12 w-12 shrink-0 items-center justify-center rounded-full shadow-sm ring-4 ring-white dark:ring-gray-800",
-                rowAudit.worstRiskLevel === "high" ? "bg-red-50 text-red-600" :
-                  rowAudit.worstRiskLevel === "medium" ? "bg-amber-50 text-amber-600" :
-                    "bg-emerald-50 text-emerald-600"].join(" ")}>
+                rowAudit.worstRiskLevel === "high" ? "bg-red-50 text-red-600 dark:bg-red-950/50 dark:text-red-400" :
+                  rowAudit.worstRiskLevel === "medium" ? "bg-amber-50 text-amber-600 dark:bg-amber-950/50 dark:text-amber-400" :
+                    "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-400"].join(" ")}>
                 <Icons.Risk />
               </div>
               <div className="min-w-0 flex-1">
@@ -766,7 +762,7 @@ function SessionAuditDetail({ row }) {
           </div>
         )}
         {jsonlStatus === "error" && (
-          <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">{jsonlError}</p>
+          <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700/50 dark:bg-amber-950/40 dark:text-amber-200">{jsonlError}</p>
         )}
         {jsonlStatus === "ok" && jsonlLines.length === 0 && (
           <p className="mt-4 text-sm text-gray-500">{intl.get("sessionAudit.fileEmpty")}</p>
@@ -800,7 +796,7 @@ function SessionAuditDetail({ row }) {
               <>
                 <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <h4 className="text-sm font-semibold text-gray-900">{intl.get("sessionAudit.eventTimeline")}</h4>
+                    <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{intl.get("sessionAudit.eventTimeline")}</h4>
                     <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-gray-500 dark:text-gray-400">
                       <span>{intl.get("sessionAudit.dotColor")}</span>
                       <span className="inline-flex items-center gap-0.5">
@@ -878,7 +874,7 @@ function SessionAuditDetail({ row }) {
                           <button
                             type="button"
                             onClick={() => setReplayPlaying(false)}
-                            className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-900 shadow-sm transition hover:bg-amber-100"
+                            className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-900 shadow-sm transition hover:bg-amber-100 dark:border-amber-700/50 dark:bg-amber-950/40 dark:text-amber-200 dark:hover:bg-amber-900/60"
                           >
                             {intl.get("sessionAudit.pause")}
                           </button>
@@ -971,10 +967,10 @@ function SessionAuditDetail({ row }) {
                                       className={[
                                         "rounded px-1.5 py-0.5 text-xs tabular-nums ring-1 ring-inset",
                                         gapWarn
-                                          ? "bg-rose-50 text-rose-800 ring-rose-200"
+                                          ? "bg-rose-50 text-rose-800 ring-rose-200 dark:bg-rose-950/40 dark:text-rose-200 dark:ring-rose-500/30"
                                           : gapMid
-                                            ? "bg-amber-50 text-amber-900 ring-amber-200"
-                                            : "bg-gray-100 text-gray-600 ring-gray-200",
+                                            ? "bg-amber-50 text-amber-900 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-500/30"
+                                            : "bg-gray-100 text-gray-600 ring-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-700",
                                       ].join(" ")}
                                       title={intl.get("sessionAudit.relativeToLast")}
                                     >
@@ -989,7 +985,7 @@ function SessionAuditDetail({ row }) {
                                     {idStr != null ? `id ${idStr}` : "id —"}
                                   </p>
                                 )}
-                                <p className="mt-2 whitespace-pre-wrap break-words text-sm text-gray-800">{sum.subtitle || "—"}</p>
+                                <p className="mt-2 whitespace-pre-wrap break-words text-sm text-gray-800 dark:text-gray-200">{sum.subtitle || "—"}</p>
                               </div>
                               <button
                                 type="button"
@@ -1086,12 +1082,12 @@ function SessionAuditDetail({ row }) {
                         if (role === "toolResult") {
                           return (
                             <div key={`chat-${lineIndex}-${kid}`} className="flex flex-col items-center gap-1">
-                              <div className="w-full max-w-[min(92%,720px)] rounded-2xl border border-amber-200/90 bg-amber-50/95 px-4 py-2.5 text-sm text-gray-900 shadow-sm">
-                                <div className="mb-1 flex flex-wrap items-center gap-2 text-xs font-semibold text-amber-900">
+                              <div className="w-full max-w-[min(92%,720px)] rounded-2xl border border-amber-200/90 bg-amber-50/95 px-4 py-2.5 text-sm text-gray-900 shadow-sm dark:border-amber-700/40 dark:bg-amber-950/50 dark:text-gray-100">
+                                <div className="mb-1 flex flex-wrap items-center gap-2 text-xs font-semibold text-amber-900 dark:text-amber-200">
                                   <span>{intl.get("sessionAudit.toolResult")}</span>
                                   <span className="font-mono">{msg.toolName ?? "—"}</span>
                                   {msg.toolCallId != null && (
-                                    <span className="font-mono text-[10px] font-normal text-amber-800/90">id {msg.toolCallId}</span>
+                                    <span className="font-mono text-[10px] font-normal text-amber-800/90 dark:text-amber-300/80">id {msg.toolCallId}</span>
                                   )}
                                   {msg.isError && (
                                     <span className="rounded bg-red-100 px-1.5 py-0.5 text-red-700">{intl.get("sessionAudit.error")}</span>
@@ -1111,7 +1107,7 @@ function SessionAuditDetail({ row }) {
 
                         return (
                           <div key={`chat-${lineIndex}-${kid}`} className="flex flex-col items-start gap-1">
-                            <div className="max-w-[min(92%,720px)] rounded-2xl border border-gray-300 bg-gray-100 px-4 py-2 text-xs text-gray-800">
+                            <div className="max-w-[min(92%,720px)] rounded-2xl border border-gray-300 bg-gray-100 px-4 py-2 text-xs text-gray-800 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200">
                               <div className="mb-1 flex items-center justify-between gap-2">
                                 <span className="font-medium text-gray-600">message · {role}</span>
                                 <CopyButton text={JSON.stringify(msg, null, 2)} className="shrink-0" />
@@ -1133,25 +1129,25 @@ function SessionAuditDetail({ row }) {
             {detailTab === "model" && (
               <div className="mt-4 space-y-4">
                 <div className="flex flex-wrap gap-3 text-xs">
-                  <div className="rounded-lg border border-gray-100 bg-gray-50/80 px-3 py-2">
+                  <div className="rounded-lg border border-gray-100 bg-gray-50/80 px-3 py-2 dark:border-gray-700 dark:bg-gray-800/80">
                     <span className="text-gray-500">{intl.get("sessionAudit.assistantTurns")}</span>{" "}
-                    <span className="font-semibold tabular-nums text-gray-900">{modelInvocations.assistantCalls.length}</span>
+                    <span className="font-semibold tabular-nums text-gray-900 dark:text-gray-100">{modelInvocations.assistantCalls.length}</span>
                   </div>
-                  <div className="rounded-lg border border-gray-100 bg-gray-50/80 px-3 py-2">
+                  <div className="rounded-lg border border-gray-100 bg-gray-50/80 px-3 py-2 dark:border-gray-700 dark:bg-gray-800/80">
                     <span className="text-gray-500">{intl.get("sessionAudit.modelSigmaTotalTokens")}</span>{" "}
-                    <span className="font-semibold tabular-nums text-gray-900">
+                    <span className="font-semibold tabular-nums text-gray-900 dark:text-gray-100">
                       {num(modelInvocations.totals.totalTokens)}
                     </span>
                   </div>
-                  <div className="rounded-lg border border-gray-100 bg-gray-50/80 px-3 py-2">
+                  <div className="rounded-lg border border-gray-100 bg-gray-50/80 px-3 py-2 dark:border-gray-700 dark:bg-gray-800/80">
                     <span className="text-gray-500">{intl.get("sessionAudit.modelSigmaInputOutput")}</span>{" "}
-                    <span className="font-semibold tabular-nums text-gray-900">
+                    <span className="font-semibold tabular-nums text-gray-900 dark:text-gray-100">
                       {num(modelInvocations.totals.totalInput)} / {num(modelInvocations.totals.totalOutput)}
                     </span>
                   </div>
-                  <div className="rounded-lg border border-gray-100 bg-gray-50/80 px-3 py-2">
+                  <div className="rounded-lg border border-gray-100 bg-gray-50/80 px-3 py-2 dark:border-gray-700 dark:bg-gray-800/80">
                     <span className="text-gray-500">{intl.get("sessionAudit.modelSigmaUsageCost")}</span>{" "}
-                    <span className="font-semibold tabular-nums text-gray-900">
+                    <span className="font-semibold tabular-nums text-gray-900 dark:text-gray-100">
                       ${fmtUsd(modelInvocations.totals.totalCost)}
                     </span>
                   </div>
@@ -1164,7 +1160,7 @@ function SessionAuditDetail({ row }) {
                   {modelInvocations.snapshots.length === 0 ? (
                     <p className="mt-2 text-sm text-gray-500">{intl.get("sessionAudit.noModelSnapshot")}</p>
                   ) : (
-                    <ol className="mt-2 space-y-2 rounded-lg border border-gray-100 bg-gray-50/50 p-3 text-sm">
+                    <ol className="mt-2 space-y-2 rounded-lg border border-gray-100 bg-gray-50/50 p-3 text-sm dark:border-gray-700 dark:bg-gray-800/50">
                       {modelInvocations.snapshots.map((s, idx) => (
                         <li
                           key={`snap-${s.kind}-${s.lineIndex}-${idx}`}
@@ -1179,7 +1175,7 @@ function SessionAuditDetail({ row }) {
                               <span className="rounded bg-violet-100 px-1.5 text-xs font-medium text-violet-900">
                                 model_change
                               </span>
-                              <span className="text-gray-800">
+                              <span className="text-gray-800 dark:text-gray-200">
                                 {s.provider ?? "—"} / {s.modelId ?? "—"}
                               </span>
                             </>
@@ -1189,7 +1185,7 @@ function SessionAuditDetail({ row }) {
                               <span className="rounded bg-fuchsia-100 px-1.5 text-xs font-medium text-fuchsia-900">
                                 thinking_level
                               </span>
-                              <span className="text-gray-800">{s.thinkingLevel ?? "—"}</span>
+                              <span className="text-gray-800 dark:text-gray-200">{s.thinkingLevel ?? "—"}</span>
                             </>
                           )}
                           {s.kind === "model_snapshot" && (
@@ -1197,7 +1193,7 @@ function SessionAuditDetail({ row }) {
                               <span className="rounded bg-cyan-100 px-1.5 text-xs font-medium text-cyan-900">
                                 model_snapshot
                               </span>
-                              <span className="text-gray-800">
+                              <span className="text-gray-800 dark:text-gray-200">
                                 {s.provider ?? "—"} / {s.modelId ?? "—"} · {s.modelApi ?? "—"}
                               </span>
                               {s.dataTimestamp != null && !Number.isNaN(s.dataTimestamp) && (
@@ -1220,7 +1216,7 @@ function SessionAuditDetail({ row }) {
                   ) : (
                     <div className="mt-2 overflow-x-auto rounded-lg border border-gray-100">
                       <table className="min-w-full divide-y divide-gray-100 text-sm">
-                        <thead className="bg-gray-50/80">
+                        <thead className="bg-gray-50/80 dark:bg-gray-800/80">
                           <tr>
                             <th className="px-2 py-2 text-left text-xs font-medium text-gray-600">#</th>
                             <th className="px-2 py-2 text-left text-xs font-medium text-gray-600">{intl.get("sessionAudit.time")}</th>
@@ -1239,11 +1235,11 @@ function SessionAuditDetail({ row }) {
                             const cost =
                               u.cost && typeof u.cost === "object" && u.cost.total != null ? u.cost.total : null;
                             return (
-                              <tr key={`${c.lineIndex}-${i}`} className="hover:bg-gray-50/50">
+                              <tr key={`${c.lineIndex}-${i}`} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/50">
                                 <td className="whitespace-nowrap px-2 py-1.5 font-mono text-xs text-gray-500">
                                   {c.lineIndex + 1}
                                 </td>
-                                <td className="whitespace-nowrap px-2 py-1.5 text-xs tabular-nums text-gray-700">
+                                <td className="whitespace-nowrap px-2 py-1.5 text-xs tabular-nums text-gray-700 dark:text-gray-300">
                                   {c.tMs != null ? formatMs(c.tMs) : "—"}
                                 </td>
                                 <td className="whitespace-nowrap px-2 py-1.5 text-xs">{c.provider ?? "—"}</td>
@@ -1251,7 +1247,7 @@ function SessionAuditDetail({ row }) {
                                 <td className="max-w-[140px] truncate px-2 py-1.5 font-mono text-xs text-gray-600">
                                   {c.api ?? "—"}
                                 </td>
-                                <td className="whitespace-nowrap px-2 py-1.5 text-right text-xs tabular-nums text-gray-700">
+                                <td className="whitespace-nowrap px-2 py-1.5 text-right text-xs tabular-nums text-gray-700 dark:text-gray-300">
                                   {u.input != null || u.output != null
                                     ? `${u.input ?? "—"} / ${u.output ?? "—"}`
                                     : "—"}
@@ -1259,7 +1255,7 @@ function SessionAuditDetail({ row }) {
                                 <td className="whitespace-nowrap px-2 py-1.5 text-right text-xs font-medium tabular-nums">
                                   {u.totalTokens != null ? num(u.totalTokens) : "—"}
                                 </td>
-                                <td className="whitespace-nowrap px-2 py-1.5 text-right text-xs tabular-nums text-gray-800">
+                                <td className="whitespace-nowrap px-2 py-1.5 text-right text-xs tabular-nums text-gray-800 dark:text-gray-200">
                                   {cost != null ? fmtUsd(cost) : "—"}
                                 </td>
                                 <td className="whitespace-nowrap px-2 py-1.5 font-mono text-xs text-gray-600">
@@ -1297,7 +1293,7 @@ function SessionAuditDetail({ row }) {
                   ) : (
                     <div className="overflow-x-auto rounded-lg border border-gray-100">
                       <table className="min-w-full divide-y divide-gray-100 text-sm">
-                        <thead className="bg-gray-50/80">
+                        <thead className="bg-gray-50/80 dark:bg-gray-800/80">
                           <tr>
                             <th className="px-3 py-2 text-left text-xs font-medium text-gray-600">#</th>
                             <th className="px-3 py-2 text-left text-xs font-medium text-gray-600">{intl.get("sessionAudit.time")}</th>
@@ -1321,7 +1317,7 @@ function SessionAuditDetail({ row }) {
                               <tr
                                 key={`risk-${r.lineIndex}-${i}`}
                                 className={[
-                                  "hover:bg-gray-50/50 transition-colors cursor-pointer",
+                                  "hover:bg-gray-50/50 transition-colors cursor-pointer dark:hover:bg-gray-800/50",
                                   riskSeverityPanelClass(r.severity),
                                 ].join(" ")}
                                 onClick={() => openRiskSourceLine(r.lineIndex)}
@@ -1336,7 +1332,7 @@ function SessionAuditDetail({ row }) {
                                     {intl.get("sessionAudit.lineNumber", { line: r.lineIndex + 1 })}
                                   </button>
                                 </td>
-                                <td className="whitespace-nowrap px-3 py-2 tabular-nums text-xs text-gray-800">
+                                <td className="whitespace-nowrap px-3 py-2 tabular-nums text-xs text-gray-800 dark:text-gray-200">
                                   {r.tMs != null ? formatMs(r.tMs) : "—"}
                                 </td>
                                 <td className="px-3 py-2">
@@ -1374,8 +1370,8 @@ function SessionAuditDetail({ row }) {
                     {intl.get("sessionAudit.tabTools")}
                   </h4>
                   {Object.keys(toolData.byName).length > 0 && (
-                    <div className="rounded-lg border border-gray-100 bg-gray-50/70 p-3">
-                      <p className="text-xs font-medium text-gray-600">{intl.get("sessionAudit.toolCountByName")}</p>
+                    <div className="rounded-lg border border-gray-100 bg-gray-50/70 p-3 dark:border-gray-700 dark:bg-gray-800/70">
+                      <p className="text-xs font-medium text-gray-600 dark:text-gray-400">{intl.get("sessionAudit.toolCountByName")}</p>
                       <div className="mt-2 flex flex-wrap gap-2">
                         {Object.entries(toolData.byName)
                           .sort((a, b) => b[1] - a[1])
@@ -1395,7 +1391,7 @@ function SessionAuditDetail({ row }) {
                   ) : (
                     <div className="overflow-x-auto rounded-lg border border-gray-100">
                       <table className="min-w-full divide-y divide-gray-100 text-sm">
-                        <thead className="bg-gray-50/80">
+                        <thead className="bg-gray-50/80 dark:bg-gray-800/80">
                           <tr>
                             <th className="px-3 py-2 text-left text-xs font-medium text-gray-600">#</th>
                             <th className="px-3 py-2 text-left text-xs font-medium text-gray-600">{intl.get("sessionAudit.time")}</th>
@@ -1411,17 +1407,17 @@ function SessionAuditDetail({ row }) {
                               <tr
                                 key={`${call.lineIndex}-${i}`}
                                 className={[
-                                  "hover:bg-gray-50/50 transition-colors",
+                                  "hover:bg-gray-50/50 transition-colors dark:hover:bg-gray-800/50",
                                   isHigh ? "bg-red-50/40 dark:bg-red-900/10" : "",
                                 ].join(" ")}
                               >
                                 <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-gray-500">{call.lineIndex + 1}</td>
-                                <td className="whitespace-nowrap px-3 py-2 tabular-nums text-xs text-gray-800">
+                                <td className="whitespace-nowrap px-3 py-2 tabular-nums text-xs text-gray-800 dark:text-gray-200">
                                   {call.tMs != null ? formatMs(call.tMs) : "—"}
                                 </td>
                                 <td className="px-3 py-2">
                                   <div className="flex items-center gap-1.5">
-                                    <span className="font-medium text-gray-900">{call.name}</span>
+                                    <span className="font-medium text-gray-900 dark:text-gray-100">{call.name}</span>
                                     {risk && (
                                       <span
                                         className={[
@@ -1435,7 +1431,7 @@ function SessionAuditDetail({ row }) {
                                     )}
                                   </div>
                                 </td>
-                                <td className="max-w-md px-3 py-2 font-mono text-xs text-gray-700 break-all">{strArgs(call.arguments)}</td>
+                                <td className="max-w-md px-3 py-2 font-mono text-xs text-gray-700 break-all dark:text-gray-300">{strArgs(call.arguments)}</td>
                               </tr>
                             );
                           })}
@@ -1456,7 +1452,7 @@ function SessionAuditDetail({ row }) {
                   ) : (
                     <div className="overflow-x-auto rounded-lg border border-gray-100">
                       <table className="min-w-full divide-y divide-gray-100 text-sm">
-                        <thead className="bg-gray-50/80">
+                        <thead className="bg-gray-50/80 dark:bg-gray-800/80">
                           <tr>
                             <th className="px-3 py-2 text-left text-xs font-medium text-gray-600">#</th>
                             <th className="px-3 py-2 text-left text-xs font-medium text-gray-600">{intl.get("sessionAudit.time")}</th>
@@ -1471,12 +1467,12 @@ function SessionAuditDetail({ row }) {
                               <tr
                                 key={`${row.lineIndex}-${i}`}
                                 className={[
-                                  "hover:bg-gray-50/50 transition-colors",
+                                  "hover:bg-gray-50/50 transition-colors dark:hover:bg-gray-800/50",
                                   isHigh ? "bg-red-50/40 dark:bg-red-900/10" : "",
                                 ].join(" ")}
                               >
                                 <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-gray-500">{row.lineIndex + 1}</td>
-                                <td className="whitespace-nowrap px-3 py-2 tabular-nums text-xs text-gray-800">
+                                <td className="whitespace-nowrap px-3 py-2 tabular-nums text-xs text-gray-800 dark:text-gray-200">
                                   {row.tMs != null ? formatMs(row.tMs) : "—"}
                                 </td>
                                 <td className="px-3 py-2 font-mono text-xs">
@@ -1497,7 +1493,7 @@ function SessionAuditDetail({ row }) {
                                     </div>
                                     {row.source && (
                                       <div>
-                                        <span className="inline-flex items-center rounded-md bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-800 ring-1 ring-violet-200/80">
+                                        <span className="inline-flex items-center rounded-md bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-800 ring-1 ring-violet-200/80 dark:bg-violet-950/40 dark:text-violet-200 dark:ring-violet-500/30">
                                           Source: {row.source}
                                         </span>
                                       </div>
@@ -1524,7 +1520,7 @@ function SessionAuditDetail({ row }) {
                   ) : (
                     <div className="overflow-x-auto rounded-lg border border-gray-100">
                       <table className="min-w-full divide-y divide-gray-100 text-sm">
-                        <thead className="bg-gray-50/80">
+                        <thead className="bg-gray-50/80 dark:bg-gray-800/80">
                           <tr>
                             <th className="px-3 py-2 text-left text-xs font-medium text-gray-600">#</th>
                             <th className="px-3 py-2 text-left text-xs font-medium text-gray-600">{intl.get("sessionAudit.time")}</th>
@@ -1545,12 +1541,12 @@ function SessionAuditDetail({ row }) {
                                 <tr
                                   key={`${fr.lineIndex}-${i}`}
                                   className={[
-                                    "hover:bg-gray-50/50 transition-colors",
+                                    "hover:bg-gray-50/50 transition-colors dark:hover:bg-gray-800/50",
                                     isHigh ? "bg-red-50/40 dark:bg-red-900/10" : "",
                                   ].join(" ")}
                                 >
                                   <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-gray-500">{fr.lineIndex + 1}</td>
-                                  <td className="whitespace-nowrap px-3 py-2 tabular-nums text-xs text-gray-800">
+                                  <td className="whitespace-nowrap px-3 py-2 tabular-nums text-xs text-gray-800 dark:text-gray-200">
                                     {fr.tMs != null ? formatMs(fr.tMs) : "—"}
                                   </td>
                                   <td className="px-3 py-2">
@@ -1591,13 +1587,13 @@ function SessionAuditDetail({ row }) {
                 {/* 5. 执行与进程 */}
                 {(netFileData.execs.length > 0 || netFileData.processOps.length > 0) && (
                   <div className="space-y-4">
-                    <h4 className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+                    <h4 className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
                       <span className="h-4 w-1 rounded-full bg-amber-500" />
                       Exec & Process
                     </h4>
                     <div className="overflow-x-auto rounded-lg border border-gray-100">
                       <table className="min-w-full divide-y divide-gray-100 text-sm">
-                        <thead className="bg-gray-50/80">
+                        <thead className="bg-gray-50/80 dark:bg-gray-800/80">
                           <tr>
                             <th className="px-3 py-2 text-left text-xs font-medium text-gray-600">#</th>
                             <th className="px-3 py-2 text-left text-xs font-medium text-gray-600">{intl.get("sessionAudit.time")}</th>
@@ -1617,12 +1613,12 @@ function SessionAuditDetail({ row }) {
                                 <tr
                                   key={`${op.lineIndex}-${i}`}
                                   className={[
-                                    "hover:bg-gray-50/50 transition-colors",
+                                    "hover:bg-gray-50/50 transition-colors dark:hover:bg-gray-800/50",
                                     isHigh ? "bg-red-50/40 dark:bg-red-900/10" : "",
                                   ].join(" ")}
                                 >
                                   <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-gray-500">{op.lineIndex + 1}</td>
-                                  <td className="whitespace-nowrap px-3 py-2 tabular-nums text-xs text-gray-800">
+                                  <td className="whitespace-nowrap px-3 py-2 tabular-nums text-xs text-gray-800 dark:text-gray-200">
                                     {op.tMs != null ? formatMs(op.tMs) : "—"}
                                   </td>
                                   <td className="px-3 py-2 text-xs relative">
@@ -1701,6 +1697,39 @@ export default function SessionAudit({ setHeaderExtra }) {
   const [query, setQuery] = useState("");
   const [detailRow, setDetailRow] = useState(null);
   const [riskFilter, setRiskFilter] = useState("all");
+  const [riskOpen, setRiskOpen] = useState(false);
+  const [timePreset, setTimePreset] = useState(7);
+  const [rangeStart, setRangeStart] = useState("");
+  const [rangeEnd, setRangeEnd] = useState("");
+
+  const handlePreset = (days) => {
+    setTimePreset(days);
+    setRangeStart("");
+    setRangeEnd("");
+  };
+
+  const handleRangeChange = (start, end) => {
+    setRangeStart(start || "");
+    setRangeEnd(end || "");
+    if (start && end) setTimePreset(null);
+  };
+
+  const effectiveTimeBounds = useMemo(() => {
+    const now = new Date();
+    const toMs = (s) => {
+      const t = new Date(s);
+      return Number.isNaN(t.getTime()) ? null : t.getTime();
+    };
+    if (rangeStart && rangeEnd) {
+      const sMs = toMs(rangeStart);
+      const eMs = toMs(rangeEnd);
+      if (sMs != null && eMs != null && sMs <= eMs) return { startMs: sMs, endMs: eMs };
+    }
+    const days = Number(timePreset ?? 7);
+    const endMs = now.getTime();
+    const startMs = now.getTime() - days * 86400000;
+    return { startMs, endMs };
+  }, [timePreset, rangeStart, rangeEnd]);
 
   // 数字员工下钻：预填搜索（读取一次即清除），版本 1.0.1
   useEffect(() => {
@@ -1784,6 +1813,10 @@ export default function SessionAudit({ setHeaderExtra }) {
     const q = query.trim().toLowerCase();
     return rows.filter((r) => {
       if (riskFilter !== "all" && r.worstRiskLevel !== riskFilter) return false;
+      if (effectiveTimeBounds) {
+        const rowMs = Number(r.startedAt);
+        if (!Number.isNaN(rowMs) && (rowMs < effectiveTimeBounds.startMs || rowMs > effectiveTimeBounds.endMs)) return false;
+      }
       if (!q) return true;
       const hay = [
         r.sessionKey,
@@ -1810,7 +1843,7 @@ export default function SessionAudit({ setHeaderExtra }) {
         .toLowerCase();
       return hay.includes(q);
     });
-  }, [rows, query, riskFilter]);
+  }, [rows, query, riskFilter, effectiveTimeBounds]);
 
   const sorted = useMemo(() => sortSessionRows(filtered, sortKey, sortDir), [filtered, sortKey, sortDir]);
 
@@ -1821,25 +1854,18 @@ export default function SessionAudit({ setHeaderExtra }) {
     return sorted.slice(p0 * pageSize, p0 * pageSize + pageSize);
   }, [sorted, pageSafe, pageSize]);
 
-  const overviewMetrics = useMemo(() => {
-    const totalSessions = rows.length;
-    const totalTokens = rows.reduce((s, r) => s + (Number.isFinite(Number(r.totalTokens)) ? Number(r.totalTokens) : 0), 0);
-    const totalToolCalls = rows.reduce((s, r) => s + (Number.isFinite(Number(r.toolUseCount)) ? Number(r.toolUseCount) : 0), 0);
-    const highRiskSessions = rows.filter((r) => (Number(r.riskHigh) || 0) > 0).length;
-    const abortedSessions = rows.filter((r) => Boolean(r.abortedLastRun)).length;
-    const successRate = totalSessions > 0 ? (totalSessions - abortedSessions) / totalSessions : null;
-    return {
-      totalSessions,
-      totalTokens,
-      totalToolCalls,
-      highRiskSessions,
-      successRate,
-    };
-  }, [rows]);
-
   useEffect(() => {
     setPage(1);
-  }, [query, sortKey, sortDir, pageSize, riskFilter]);
+  }, [query, sortKey, sortDir, pageSize, riskFilter, timePreset]);
+
+  useEffect(() => {
+    if (!riskOpen) return;
+    const close = (e) => {
+      if (!e.target.closest(".risk-filter-dropdown")) setRiskOpen(false);
+    };
+    document.addEventListener("click", close);
+    return () => document.removeEventListener("click", close);
+  }, [riskOpen]);
 
   const toggleSort = (key) => {
     if (sortKey === key) {
@@ -1877,44 +1903,19 @@ export default function SessionAudit({ setHeaderExtra }) {
   return (
     <div className="space-y-6">
       {loadError && (
-        <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">{loadError}</p>
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-700/50 dark:bg-amber-950/40 dark:text-amber-200">{loadError}</p>
       )}
 
-      <section className="app-card p-4 sm:p-6">
-        <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">{intl.get("sessionAudit.overview.coreMetrics")}</h2>
-        <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-5">
-          <div className="rounded-xl border border-gray-100 bg-white p-3 dark:border-gray-800 dark:bg-gray-900/50">
-            <p className="text-xs text-gray-500 dark:text-gray-400">{intl.get("sessionAudit.overview.totalSessions")}</p>
-            <p className="mt-1 text-xl font-semibold tabular-nums text-gray-900 dark:text-gray-100">{num(overviewMetrics.totalSessions)}</p>
-          </div>
-          <div className="rounded-xl border border-gray-100 bg-white p-3 dark:border-gray-800 dark:bg-gray-900/50">
-            <p className="text-xs text-gray-500 dark:text-gray-400">{intl.get("sessionAudit.overview.totalTokens")}</p>
-            <p className="mt-1 text-xl font-semibold tabular-nums text-gray-900 dark:text-gray-100">{num(overviewMetrics.totalTokens)}</p>
-          </div>
-          <div className="rounded-xl border border-gray-100 bg-white p-3 dark:border-gray-800 dark:bg-gray-900/50">
-            <p className="text-xs text-gray-500 dark:text-gray-400">{intl.get("sessionAudit.overview.totalToolCalls")}</p>
-            <p className="mt-1 text-xl font-semibold tabular-nums text-gray-900 dark:text-gray-100">{num(overviewMetrics.totalToolCalls)}</p>
-          </div>
-          <div className="rounded-xl border border-gray-100 bg-white p-3 dark:border-gray-800 dark:bg-gray-900/50">
-            <p className="text-xs text-gray-500 dark:text-gray-400">{intl.get("sessionAudit.overview.highRiskSessions")}</p>
-            <p className="mt-1 text-xl font-semibold tabular-nums text-rose-600 dark:text-rose-300">{num(overviewMetrics.highRiskSessions)}</p>
-          </div>
-          <div className="rounded-xl border border-gray-100 bg-white p-3 dark:border-gray-800 dark:bg-gray-900/50">
-            <p className="text-xs text-gray-500 dark:text-gray-400">{intl.get("sessionAudit.overview.successRate")}</p>
-            <p className="mt-1 text-xl font-semibold tabular-nums text-emerald-600 dark:text-emerald-300">{pct(overviewMetrics.successRate)}</p>
-          </div>
-        </div>
-      </section>
+      <CostTimeRangeFilter
+        activeDays={timePreset}
+        onPreset={handlePreset}
+        rangeStart={rangeStart}
+        rangeEnd={rangeEnd}
+        onRangeChange={handleRangeChange}
+      />
 
       <section className="app-card p-4 sm:p-6">
-        <div className="flex flex-col gap-3">
-          <div>
-            <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">{intl.get("sessionAudit.sessionList")}</h2>
-            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{intl.get("sessionAudit.securityQueueHint")}</p>
-          </div>
-        </div>
-
-        <div className="mt-4 flex flex-col gap-3 border-t border-gray-100 pt-4 dark:border-gray-800 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="relative min-w-0 lg:w-[22rem] xl:w-[26rem]">
             <label className="sr-only" htmlFor="session-audit-search">
               {intl.get("common.search")}
@@ -1934,33 +1935,48 @@ export default function SessionAudit({ setHeaderExtra }) {
             />
           </div>
           <div className="flex flex-wrap items-center gap-3 lg:justify-end">
-            <label className="relative inline-flex min-w-[11rem] items-center">
-              <span className="pointer-events-none absolute left-3 text-sm font-semibold text-gray-700 dark:text-gray-200">
-                {intl.get("sessionAudit.filterRisk.label")}
-              </span>
-              <select
-                value={riskFilter}
-                onChange={(e) => setRiskFilter(e.target.value)}
-                className="app-input w-full appearance-none py-2.5 pl-[4.75rem] pr-9 text-sm font-semibold text-gray-800 dark:text-gray-100"
+            <div className="relative risk-filter-dropdown">
+              <button
+                type="button"
+                onClick={() => setRiskOpen((o) => !o)}
+                className={[
+                  "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition",
+                  riskFilter !== "all"
+                    ? "border-primary bg-primary-soft text-primary dark:bg-primary/20"
+                    : "border-gray-200 bg-white text-gray-700 hover:border-gray-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:border-gray-600",
+                ].join(" ")}
               >
-                {["all", "high", "medium", "low", "clean"].map((level) => (
-                  <option key={level} value={level}>
-                    {intl.get(`sessionAudit.filterRisk.${level}`)}
-                  </option>
-                ))}
-              </select>
-              <span className="pointer-events-none absolute right-3 text-gray-400 dark:text-gray-500">
-                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="m6 9 6 6 6-6" />
+                <span>{intl.get("sessionAudit.filterRisk.label")} {intl.get(`sessionAudit.filterRisk.${riskFilter}`)}</span>
+                <svg className="h-3 w-3 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
                 </svg>
-              </span>
-            </label>
+              </button>
+              {riskOpen && (
+                <div className="absolute right-0 top-full z-50 mt-1 min-w-[160px] rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-900">
+                  {["all", "high", "medium", "low", "clean"].map((level) => (
+                    <button
+                      key={level}
+                      type="button"
+                      onClick={() => { setRiskFilter(level); setRiskOpen(false); }}
+                      className={[
+                        "block w-full px-3 py-2 text-left text-xs transition",
+                        riskFilter === level
+                          ? "bg-primary-soft text-primary font-medium"
+                          : "text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800",
+                      ].join(" ")}
+                    >
+                      {intl.get(`sessionAudit.filterRisk.${level}`)}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
         <div className="mt-4 overflow-hidden rounded-lg border border-gray-100 dark:border-gray-800">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1120px] border-collapse text-left text-sm">
+            <table className="w-full min-w-[960px] border-collapse text-left text-sm">
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50/80 text-xs font-medium text-gray-500 dark:border-gray-800 dark:bg-gray-800/80 dark:text-gray-400">
                   <th className="cursor-pointer whitespace-nowrap px-3 py-3" onClick={() => toggleSort("riskScore")}>
@@ -1979,19 +1995,18 @@ export default function SessionAudit({ setHeaderExtra }) {
                   <th className="cursor-pointer whitespace-nowrap px-3 py-3" onClick={() => toggleSort("totalTokens")}>
                     {intl.get("sessionAudit.queue.modelCost")} {sortKey === "totalTokens" ? (sortDir === "asc" ? "↑" : "↓") : ""}
                   </th>
-                  <th className="px-3 py-3 text-right">{intl.get("sessionAudit.queue.action")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
                 {loading ? (
                   <tr>
-                    <td colSpan={7} className="p-0 align-middle">
+                    <td colSpan={6} className="p-0 align-middle">
                       <LoadingSpinner message={intl.get("sessionAudit.loadingList")} className="!py-16" />
                     </td>
                   </tr>
                 ) : pageSlice.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-4 py-10 text-center text-gray-500">
+                    <td colSpan={6} className="px-4 py-10 text-center text-gray-500">
                       {intl.get("common.noMatch")}
                     </td>
                   </tr>
@@ -2012,55 +2027,56 @@ export default function SessionAudit({ setHeaderExtra }) {
                           }
                         }}
                       >
-                        <td className="px-3 py-3 align-top">
-                          <div className="flex flex-col gap-1.5">
+                        <td className="px-3 py-3 align-middle">
+                          <div className="flex flex-col items-center gap-1">
                             <span
                               className={[
-                                "inline-flex w-fit rounded-md px-2 py-0.5 text-xs font-semibold ring-1 ring-inset",
+                                "inline-flex items-center gap-1.5 w-fit rounded-md px-2 py-0.5 text-xs font-semibold ring-1 ring-inset",
                                 auditRiskBadgeClass(row.worstRiskLevel),
                               ].join(" ")}
                             >
+                              {row.aborted && (
+                                <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500" title={intl.get("sessionAudit.abortedLastRun")} />
+                              )}
                               {auditRiskLabel(row.worstRiskLevel)}
                             </span>
-                            <span className="text-[11px] text-gray-500 dark:text-gray-400">
-                              <span className="font-medium text-red-700 dark:text-red-400">H {row.high}</span>
-                              <span className="text-gray-300"> / </span>
-                              <span className="font-medium text-amber-800 dark:text-amber-300">M {row.medium}</span>
-                              <span className="text-gray-300"> / </span>
-                              <span className="font-medium text-sky-700 dark:text-sky-300">L {row.low}</span>
+                            <span className="text-[11px] whitespace-nowrap tabular-nums">
+                              <span className={row.high > 0 ? "font-semibold text-red-600" : "text-gray-300"}>H&thinsp;{row.high}</span>
+                              <span className="text-gray-300">&thinsp;/&thinsp;</span>
+                              <span className={row.medium > 0 ? "font-semibold text-amber-600" : "text-gray-300"}>M&thinsp;{row.medium}</span>
+                              <span className="text-gray-300">&thinsp;/&thinsp;</span>
+                              <span className={row.low > 0 ? "font-semibold text-sky-600" : "text-gray-300"}>L&thinsp;{row.low}</span>
                             </span>
-                            {row.aborted && (
-                              <span className="w-fit rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 ring-1 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-500/25">
-                                {intl.get("sessionAudit.abortedLastRun")}
-                              </span>
-                            )}
                           </div>
                         </td>
-                        <td className="max-w-[18rem] px-3 py-3 align-top">
-                          <div className="font-mono text-xs font-semibold text-violet-700 dark:text-violet-300">{row.session_id ?? "—"}</div>
-                          <div className="mt-1 truncate font-mono text-[11px] text-gray-500 dark:text-gray-400" title={row.sessionKey || ""}>
-                            {row.sessionKey || "—"}
+                        <td className="max-w-[16rem] px-3 py-3 align-top">
+                          <div className="truncate font-mono text-xs font-semibold text-gray-900 dark:text-gray-100" title={row.sessionKey || ""}>
+                            {row.session_id ?? "—"}
                           </div>
-                          {row.label && (
-                            <div className="mt-1 truncate text-xs font-medium text-gray-700 dark:text-gray-300" title={row.label}>
+                          {row.label ? (
+                            <div className="mt-0.5 truncate text-[11px] text-gray-400 dark:text-gray-500" title={row.label}>
                               {row.label}
+                            </div>
+                          ) : (
+                            <div className="mt-0.5 truncate text-[11px] text-gray-300 dark:text-gray-600" title={row.sessionKey || ""}>
+                              {row.sessionKey || ""}
                             </div>
                           )}
                         </td>
-                        <td className="max-w-[12rem] px-3 py-3 align-top">
-                          <div className="truncate font-medium text-gray-900 dark:text-gray-100" title={row.agentName || ""}>{row.agentName ?? "—"}</div>
-                          <div className="mt-1 truncate text-xs text-gray-500 dark:text-gray-400" title={row.channel || row.lastChannel || ""}>
+                        <td className="max-w-[10rem] px-3 py-3 align-top">
+                          <div className="truncate text-xs font-medium text-gray-800 dark:text-gray-200" title={row.agentName || ""}>{row.agentName ?? "—"}</div>
+                          <div className="mt-0.5 truncate text-[11px] text-gray-400 dark:text-gray-500" title={row.channel || row.lastChannel || ""}>
                             {row.channel ?? row.lastChannel ?? "—"}
                           </div>
                         </td>
                         <td className="whitespace-nowrap px-3 py-3 align-top">
-                          <div className="tabular-nums text-xs text-gray-800 dark:text-gray-200">{formatMs(row.startedAt)}</div>
-                          <div className="mt-1 tabular-nums text-xs font-medium text-gray-600 dark:text-gray-400" title={row.durationMs != null ? `${row.durationMs} ms` : ""}>
+                          <div className="tabular-nums text-xs text-gray-600 dark:text-gray-400">{formatMs(row.startedAt)}</div>
+                          <div className="mt-0.5 tabular-nums text-[11px] text-gray-400 dark:text-gray-500" title={row.durationMs != null ? `${row.durationMs} ms` : ""}>
                             {formatDurationMs(row.durationMs)}
                           </div>
                         </td>
                         <td className="px-3 py-3 align-top">
-                          <div className="flex max-w-[18rem] flex-wrap gap-1.5">
+                          <div className="flex max-w-[14rem] flex-wrap gap-1">
                             {[
                               [intl.get("sessionAudit.evidence.network"), row.network],
                               [intl.get("sessionAudit.evidence.file"), row.file],
@@ -2070,30 +2086,18 @@ export default function SessionAudit({ setHeaderExtra }) {
                               <span
                                 key={label}
                                 className={[
-                                  "rounded-md px-1.5 py-0.5 text-[11px] font-medium ring-1 ring-inset",
+                                  "rounded px-1 py-px text-[10px] font-medium ring-1 ring-inset",
                                   evidenceBadgeClass(Number(count) > 0),
                                 ].join(" ")}
                               >
-                                {label} {num(count)}
+                                {label}&thinsp;{num(count)}
                               </span>
                             ))}
                           </div>
                         </td>
-                        <td className="max-w-[12rem] px-3 py-3 align-top">
-                          <div className="truncate text-xs font-medium text-gray-800 dark:text-gray-200" title={row.model || ""}>{row.model ?? "—"}</div>
-                          <div className="mt-1 tabular-nums text-xs text-gray-500 dark:text-gray-400">{num(row.totalTokens)} tokens</div>
-                        </td>
-                        <td className="px-3 py-3 text-right align-top">
-                          <button
-                            type="button"
-                            onClick={(ev) => {
-                              ev.stopPropagation();
-                              openDetail(row);
-                            }}
-                            className="rounded-md bg-primary px-2.5 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-primary-hover"
-                          >
-                            {intl.get("sessionAudit.openInvestigation")}
-                          </button>
+                        <td className="max-w-[10rem] px-3 py-3 align-top">
+                          <div className="truncate text-xs text-gray-500 dark:text-gray-400" title={row.model || ""}>{row.model ?? "—"}</div>
+                          <div className="mt-0.5 tabular-nums text-[11px] text-gray-400 dark:text-gray-500">{num(row.totalTokens)}</div>
                         </td>
                       </tr>
                     );

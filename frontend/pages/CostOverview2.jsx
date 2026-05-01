@@ -249,7 +249,7 @@ function SessionRow({ row, i, isExpanded, onToggle }) {
         <td className={`whitespace-nowrap px-4 py-3 transition-all ${isExpanded ? "border-l-4 border-primary" : "border-l-4 border-transparent"}`}>
           <div className="flex flex-col items-center justify-center">
             <div className="flex items-center gap-2">
-              <span className={`font-mono text-xs ${isExpanded ? "font-bold text-primary" : "text-gray-900 dark:text-gray-100"}`}>
+              <span className={`font-mono text-xs font-bold ${isExpanded ? "text-primary" : "text-gray-900 dark:text-gray-100"}`}>
                 {row.session_id}
               </span>
               <svg

@@ -1,10 +1,4 @@
 export default {
-  "sessionAudit.overview.coreMetrics": "核心指标",
-  "sessionAudit.overview.totalSessions": "会话总数",
-  "sessionAudit.overview.totalTokens": "总 Token 消耗",
-  "sessionAudit.overview.totalToolCalls": "工具调用总数",
-  "sessionAudit.overview.highRiskSessions": "高危会话数",
-  "sessionAudit.overview.successRate": "会话成功率",
   "sessionAudit.sessionList": "会话列表",
   "sessionAudit.searchPlaceholder": "搜索会话 Key, ID, 实例名称, 渠道, 提供方, 模型...",
   "sessionAudit.securityQueueHint": "风险优先审计队列，用于筛选需要深入核查的异常会话。",
