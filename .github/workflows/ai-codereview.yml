@@ -14,10 +14,10 @@ jobs:
         uses: actions/checkout@v3
 
       - name: AI Code Reviewer
-        uses: villesau/ai-codereviewer@main
+        uses: never112/ai-codereviewer@main
         with:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.MINIMAX_KEY }}
-          OPENAI_API_BASE_URL: ${{ secrets.MINIMAX_OPENAPI_BASEURL }}
+          #OPENAI_API_BASE_URL: ${{ secrets.MINIMAX_OPENAPI_BASEURL }}
           OPENAI_API_MODEL: "MiniMax-M2.7"
           exclude: "**/*.json, **/*.md"
