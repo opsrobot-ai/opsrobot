@@ -16,7 +16,7 @@ jobs:
       - name: AI Code Reviewer
         uses: never112/ai-code-reviewer@main
         with:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.MINIMAX_KEY }}
           OPENAI_API_BASE_URL: ${{ secrets.MINIMAX_OPENAPI_BASEURL }}
           OPENAI_API_MODEL: "MiniMax-M2.7"
