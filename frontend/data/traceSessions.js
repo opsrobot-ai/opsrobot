@@ -271,7 +271,7 @@ export const TRACE_SESSION_SAMPLES = [
     channel: "event-bus",
     user: "system-scheduler",
     tenant: "scm-core",
-    get agentName() { return intl.get("fullChain.shrimp.agent") || "供应链协同 · 员工虾"; },
+    get agentName() { return intl.get("fullChain.shrimp.agent") || "供应链协同"; },
     startedAt: "2026-04-14T02:15:00.000Z",
     endedAt: "2026-04-14T02:15:12.800Z",
     outcome: "error",

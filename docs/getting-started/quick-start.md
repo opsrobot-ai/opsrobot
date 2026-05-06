@@ -16,7 +16,7 @@
 
 ### 1.部署总览
 部署总览：
-![部署总览](./docs/pictures/deploy.png)
+![部署总览](../pictures/deploy.png)
 
 ### 1.环境要求
 
@@ -212,7 +212,7 @@ openclaw gataway restart
 
 
 ### 6.配置 OpenClaw-主机信息数据采集
-根据当前部署openclaw的主机的信息，部署对应版本的数据采集器https://github.com/open-telemetry/opentelemetry-collector-releases/releases/tag/v0.144.0,推荐v0.144.0 版本
+根据当前部署openclaw的主机的信息，部署对应版本的数据采集器 https://github.com/open-telemetry/opentelemetry-collector-releases/releases/tag/v0.144.0 , 推荐v0.144.0 版本
 
 
 ```yaml
