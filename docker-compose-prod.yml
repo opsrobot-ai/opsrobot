@@ -66,11 +66,11 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "2"
-          memory: 8G
+          cpus: "4"
+          memory: 32G
         reservations:
-          cpus: "0.5"
-          memory: 2G
+          cpus: "2"
+          memory: 16G
     ports:
       - "${DORIS_FE_HTTP_PORT:-8030}:8030" # FE HTTP port (Web UI)
       - "${DORIS_FE_MYSQL_PORT:-9030}:9030" # FE MySQL protocol port
