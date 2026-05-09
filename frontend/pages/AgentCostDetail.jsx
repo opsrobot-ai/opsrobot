@@ -11,12 +11,28 @@ import SortableTableTh from "../components/SortableTableTh.jsx";
 import TablePagination, { DEFAULT_TABLE_PAGE_SIZE } from "../components/TablePagination.jsx";
 import intl from "react-intl-universal";
 
-export default function AgentCostDetail() {
+export default function AgentCostDetail({ params } = {}) {
   const [activeDays, setActiveDays] = useState(30);
-  const rangeObj = useMemo(() => defaultRangeLastDays(activeDays), [activeDays]);
+  const [customRangeStart, setCustomRangeStart] = useState("");
+  const [customRangeEnd, setCustomRangeEnd] = useState("");
+  const rangeObj = useMemo(() => {
+    if (customRangeStart && customRangeEnd) return { start: customRangeStart, end: customRangeEnd };
+    return defaultRangeLastDays(activeDays ?? 30);
+  }, [activeDays, customRangeStart, customRangeEnd]);
   const rangeStart = rangeObj.start;
   const rangeEnd = rangeObj.end;
   const [drillRow, setDrillRow] = useState(null);
+  const handlePreset = (p) => {
+    const days = p?.days ?? 30;
+    setActiveDays(days);
+    setCustomRangeStart("");
+    setCustomRangeEnd("");
+  };
+  const handleRangeChange = (start, end) => {
+    setCustomRangeStart(start || "");
+    setCustomRangeEnd(end || "");
+    if (start && end) setActiveDays(null);
+  };
   const [sortKey, setSortKey] = useState(null);
   const [sortOrder, setSortOrder] = useState("asc");
   const [page, setPage] = useState(1);
@@ -170,7 +186,10 @@ export default function AgentCostDetail() {
 
       <CostTimeRangeFilter
         activeDays={activeDays}
-        onPreset={(p) => setActiveDays(p.days ?? 7)}
+        onPreset={handlePreset}
+        rangeStart={customRangeStart}
+        rangeEnd={customRangeEnd}
+        onRangeChange={handleRangeChange}
       />
 
       <section className="app-card p-4 sm:p-6">

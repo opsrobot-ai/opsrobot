@@ -128,11 +128,13 @@ function MultiSelectFilter({ label, options, value, onChange, placeholder }) {
   );
 }
 
-export default function CostOverview2() {
+export default function CostOverview2({ params } = {}) {
   const [filters, setFilters] = useState({
     timePreset: 7,
     timeStart: "",
     timeEnd: "",
+    rangeStart: "",
+    rangeEnd: "",
     agents: [],
     users: [],
     gateways: [],
@@ -158,12 +160,19 @@ export default function CostOverview2() {
   // Compute effective time bounds
   const effectiveTimeBounds = useMemo(() => {
     const now = new Date();
-    const days = Number(filters.timePreset);
+    if (filters.rangeStart && filters.rangeEnd) {
+      const s = new Date(filters.rangeStart);
+      const e = new Date(filters.rangeEnd);
+      if (!isNaN(s.getTime()) && !isNaN(e.getTime())) {
+        return { startDay: s.toISOString().slice(0, 10), endDay: e.toISOString().slice(0, 10) };
+      }
+    }
+    const days = Number(filters.timePreset ?? 7);
     const endDay = now.toISOString().slice(0, 10);
     const start = new Date(now.getTime() - days * 86400000);
     const startDay = start.toISOString().slice(0, 10);
     return { startDay, endDay };
-  }, [filters.timePreset]);
+  }, [filters.timePreset, filters.rangeStart, filters.rangeEnd]);
 
   // Load filter options
   useEffect(() => {
@@ -224,7 +233,17 @@ export default function CostOverview2() {
   useEffect(() => { load(); }, [load]);
 
   // Reset page when filters change
-  useEffect(() => { setPage(1); }, [filters.timePreset, filters.agents, filters.users, filters.gateways, filters.models]);
+  useEffect(() => { setPage(1); }, [filters.timePreset, filters.rangeStart, filters.rangeEnd, filters.agents, filters.users, filters.gateways, filters.models]);
+
+  useEffect(() => {
+    if (!params) return;
+    setFilters((f) => {
+      const next = { ...f, agents: [], users: [], gateways: [], models: [] };
+      if (params.agents?.length) next.agents = params.agents;
+      if (params.model) next.models = [params.model];
+      return next;
+    });
+  }, [params]);
 
   const handleSort = (key) => {
     setSortKey((prev) => {
@@ -238,8 +257,16 @@ export default function CostOverview2() {
   };
 
   const handlePreset = (p) => {
-    setFilters((f) => ({ ...f, timePreset: p.days ?? 7 }));
+    const days = p?.days ?? 7;
+    setFilters((f) => ({ ...f, timePreset: days, rangeStart: "", rangeEnd: "" }));
   };
+  const handleRangeChange = (start, end) =>
+    setFilters((f) => ({
+      ...f,
+      rangeStart: start || "",
+      rangeEnd: end || "",
+      timePreset: start && end ? null : f.timePreset ?? 7,
+    }));
 
   const totalPages = total === 0 ? 0 : Math.ceil(total / pageSize);
   const safePage = total === 0 ? 1 : Math.min(Math.max(1, page), totalPages);
@@ -259,6 +286,9 @@ export default function CostOverview2() {
       <CostTimeRangeFilter
         activeDays={filters.timePreset}
         onPreset={handlePreset}
+        rangeStart={filters.rangeStart}
+        rangeEnd={filters.rangeEnd}
+        onRangeChange={handleRangeChange}
       />
 
       {/* 表格 */}
