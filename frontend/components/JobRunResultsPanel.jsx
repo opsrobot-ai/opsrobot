@@ -1,40 +1,10 @@
 import { useMemo } from "react";
 import ReactECharts from "echarts-for-react";
 import intl from "react-intl-universal";
-import { analyzeRunHistory } from "../lib/jobRunHistoryMetrics.js";
-import { aggregateRunResults, analyzeFailureReasons, recentRunRows } from "../lib/jobRunResultsMetrics.js";
+import { analyzeRunHistory, buildDailyExecutionChartsFromRunEvents } from "../lib/jobRunHistoryMetrics.js";
+import { aggregateRunResults } from "../lib/jobRunResultsMetrics.js";
 import JobRunHistoryTrendChart from "./JobRunHistoryTrendChart.jsx";
-
-/** @param {number | null | undefined} ms */
-function formatEpochMs(ms) {
-  if (ms == null || !Number.isFinite(Number(ms))) return "—";
-  return new Date(Number(ms)).toLocaleString();
-}
-
-/** @param {number | null | undefined} ms */
-function formatDuration(ms) {
-  if (ms == null || !Number.isFinite(ms)) return "—";
-  if (ms < 1000) return `${Math.round(ms)} ms`;
-  const s = Math.floor(ms / 1000);
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  const rs = s % 60;
-  return `${m}m ${rs}s`;
-}
-
-function statusClass(status) {
-  const s = String(status ?? "").toLowerCase();
-  if (s === "success" || s === "succeeded" || s === "ok" || s === "completed") {
-    return "bg-emerald-50 text-emerald-800 ring-emerald-600/15 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-500/20";
-  }
-  if (s === "failed" || s === "error" || s === "failure") {
-    return "bg-rose-50 text-rose-800 ring-rose-600/15 dark:bg-rose-950/40 dark:text-rose-300 dark:ring-rose-500/20";
-  }
-  if (s === "running" || s === "pending" || s === "started") {
-    return "bg-amber-50 text-amber-900 ring-amber-600/15 dark:bg-amber-950/40 dark:text-amber-200 dark:ring-amber-500/20";
-  }
-  return "bg-gray-50 text-gray-700 ring-gray-500/15 dark:bg-gray-800 dark:text-gray-300 dark:ring-gray-600/30";
-}
+import ScheduledTasksRunOverviewCharts from "./ScheduledTasksRunOverviewCharts.jsx";
 
 function IconTotal(props) {
   return (
@@ -76,10 +46,9 @@ function IconRate(props) {
  */
 export default function JobRunResultsPanel({ events, loading, error }) {
   const list = Array.isArray(events) ? events : [];
+  const dailyExecutionCharts = useMemo(() => buildDailyExecutionChartsFromRunEvents(list), [list]);
   const history = useMemo(() => analyzeRunHistory(list), [list]);
   const agg = useMemo(() => aggregateRunResults(list), [list]);
-  const rows = useMemo(() => recentRunRows(list, 30), [list]);
-  const failureRows = useMemo(() => analyzeFailureReasons(list, 15), [list]);
 
   const cards = useMemo(
     () => [
@@ -159,8 +128,6 @@ export default function JobRunResultsPanel({ events, loading, error }) {
     };
   }, [agg.ok, agg.bad, agg.neutral]);
 
-  const failTotal = useMemo(() => failureRows.reduce((s, r) => s + r.count, 0), [failureRows]);
-
   return (
     <section className="app-card overflow-hidden border border-gray-100 dark:border-gray-800">
       {error && (
@@ -187,6 +154,8 @@ export default function JobRunResultsPanel({ events, loading, error }) {
           ))}
         </div>
 
+        <ScheduledTasksRunOverviewCharts charts={dailyExecutionCharts} loading={loading} heatmapOnly />
+
         <div className="grid gap-3 lg:grid-cols-[3fr_1fr] lg:items-stretch">
           <div className="flex min-h-[202px] min-w-0 flex-col rounded-lg border border-gray-100 bg-white p-2.5 dark:border-gray-800 dark:bg-gray-900/40">
             <JobRunHistoryTrendChart events={list} compact chartHeightPx={216} />
@@ -197,86 +166,6 @@ export default function JobRunResultsPanel({ events, loading, error }) {
             <div className="mt-1.5 min-h-0 flex-1">
               <ReactECharts option={pieOption} style={{ height: "100%", minHeight: "163px", width: "100%" }} opts={{ renderer: "canvas" }} notMerge lazyUpdate />
             </div>
-          </div>
-        </div>
-
-        <div className="grid gap-4 lg:grid-cols-2 lg:items-stretch">
-          <div className="flex min-h-[280px] min-w-0 flex-col rounded-lg border border-gray-100 bg-white p-3 dark:border-gray-800 dark:bg-gray-900/40">
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{intl.get("scheduledTasks.taskDetail.results.recentTitle")}</h3>
-            <div className="mt-2 min-h-0 min-w-0 flex-1 max-h-[360px] overflow-auto">
-              <table className="w-full min-w-[280px] border-collapse text-left text-xs">
-                <thead>
-                  <tr className="sticky top-0 border-b border-gray-100 bg-gray-50/95 dark:border-gray-800 dark:bg-gray-800/90">
-                    <th className="px-2 py-2 font-semibold text-gray-700 dark:text-gray-300">{intl.get("scheduledTasks.taskDetail.results.colRunAt")}</th>
-                    <th className="px-2 py-2 font-semibold text-gray-700 dark:text-gray-300">{intl.get("scheduledTasks.taskDetail.results.colStatus")}</th>
-                    <th className="px-2 py-2 font-semibold text-gray-700 dark:text-gray-300">{intl.get("scheduledTasks.taskDetail.results.colDuration")}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.length === 0 ? (
-                    <tr>
-                      <td colSpan={3} className="px-3 py-8 text-center text-gray-500 dark:text-gray-400">
-                        {intl.get("common.noData")}
-                      </td>
-                    </tr>
-                  ) : (
-                    rows.map((ev, idx) => (
-                      <tr key={`rr-${String(ev.runAtMs)}-${String(ev.ts)}-${idx}`} className="border-b border-gray-50 dark:border-gray-800/80">
-                        <td className="whitespace-nowrap px-2 py-2 text-gray-700 dark:text-gray-300">{formatEpochMs(ev.runAtMs ?? ev.ts)}</td>
-                        <td className="px-2 py-2">
-                          {ev.status != null && String(ev.status) ? (
-                            <span className={["inline-flex rounded-md px-1.5 py-0.5 text-[10px] font-medium ring-1 ring-inset", statusClass(ev.status)].join(" ")}>
-                              {String(ev.status)}
-                            </span>
-                          ) : (
-                            "—"
-                          )}
-                        </td>
-                        <td className="whitespace-nowrap px-2 py-2 text-gray-700 dark:text-gray-300">{formatDuration(ev.durationMs)}</td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <div className="flex min-h-[280px] min-w-0 flex-col rounded-lg border border-gray-100 bg-white p-3 dark:border-gray-800 dark:bg-gray-900/40">
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{intl.get("scheduledTasks.taskDetail.results.failureTitle")}</h3>
-            {failureRows.length > 0 ? (
-              <div className="mt-3 min-h-0 min-w-0 flex-1 max-h-[360px] overflow-auto">
-                <table className="w-full min-w-[280px] border-collapse text-left text-xs">
-                  <thead>
-                    <tr className="sticky top-0 border-b border-gray-100 bg-gray-50/90 dark:border-gray-800 dark:bg-gray-800/80">
-                      <th className="px-3 py-2 font-semibold text-gray-700 dark:text-gray-300">{intl.get("scheduledTasks.taskDetail.results.colFailureReason")}</th>
-                      <th className="whitespace-nowrap px-3 py-2 text-right font-semibold text-gray-700 dark:text-gray-300">
-                        {intl.get("scheduledTasks.taskDetail.results.colFailureCount")}
-                      </th>
-                      <th className="whitespace-nowrap px-3 py-2 text-right font-semibold text-gray-700 dark:text-gray-300">
-                        {intl.get("scheduledTasks.taskDetail.results.colFailureShare")}
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {failureRows.map((r, i) => (
-                      <tr key={`fr-${i}`} className="border-b border-gray-50 dark:border-gray-800/80">
-                        <td className="break-words px-3 py-2 align-top text-gray-800 dark:text-gray-200" title={r.reason}>
-                          {r.reason}
-                        </td>
-                        <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-gray-800 dark:text-gray-200">{r.count}</td>
-                        <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-gray-600 dark:text-gray-400">
-                          {failTotal > 0 ? `${Math.round((r.count / failTotal) * 1000) / 10}%` : "—"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <p className="mt-4 flex flex-1 items-center justify-center py-6 text-center text-sm text-gray-500 dark:text-gray-400">
-                {intl.get("scheduledTasks.taskDetail.results.failureEmpty")}
-              </p>
-            )}
           </div>
         </div>
       </div>

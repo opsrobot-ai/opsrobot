@@ -9,6 +9,7 @@ import {
   formatDurationMs,
   listRunsByDurationMsDesc,
 } from "../lib/jobDurationMetrics.js";
+import { formatRunStatusLabel } from "../lib/formatRunStatusLabel.js";
 
 /** 任务执行耗时列表默认每页条数（与原先「Top 10」首屏一致） */
 const DURATION_RUN_LIST_PAGE_SIZE = 10;
@@ -312,7 +313,7 @@ export default function JobPerformancePanel({ events, loading, error }) {
                           <span
                             className={["inline-flex rounded-md px-1.5 py-0.5 text-[10px] font-medium ring-1 ring-inset", statusClass(row.status)].join(" ")}
                           >
-                            {String(row.status)}
+                            {formatRunStatusLabel(row.status)}
                           </span>
                         ) : (
                           "—"

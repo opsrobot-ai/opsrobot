@@ -62,6 +62,9 @@ function row(i) {
     parsed = {};
   }
   const u = parsed.usage && typeof parsed.usage === "object" ? parsed.usage : null;
+  const usageIn = u ? u.input_tokens ?? u.prompt_tokens : null;
+  const usageOut = u ? u.output_tokens ?? u.completion_tokens : null;
+  const usageTot = u ? u.total_tokens ?? u.totalTokens : null;
   return {
     runId,
     jobId: b.jobId,
@@ -80,6 +83,9 @@ function row(i) {
     finishedAt: finished,
     errorMessage: ok ? null : "connection reset by peer",
     durationMs,
+    run_usage_in_raw: usageIn != null ? String(usageIn) : null,
+    run_usage_out_raw: usageOut != null ? String(usageOut) : null,
+    run_usage_total_raw: usageTot != null ? String(usageTot) : null,
     usage: u
       ? {
           input_tokens: u.input_tokens ?? u.prompt_tokens,

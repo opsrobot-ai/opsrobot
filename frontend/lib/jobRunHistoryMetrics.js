@@ -1,4 +1,5 @@
 import { isRunFailureStatus, isRunSuccessStatus } from "./jobStabilityMetrics.js";
+import { parseRunEventAnchorMs } from "./runEventsTimeRange.js";
 
 /** @param {number} ms */
 function dayKeyFromMs(ms) {
@@ -62,5 +63,66 @@ export function analyzeRunHistory(events) {
     neutral,
     successRatePct,
     daily,
+  };
+}
+
+/**
+ * 与运行概览接口返回的 `charts.trend` / `charts.range` 对齐，供「每日执行概览」热力图使用。
+ * @param {object[]} events 已由父组件按统计时间窗过滤后的运行事件
+ * @returns {{ trend: object[], range: { startIso?: string | null, endIso?: string | null } }}
+ */
+export function buildDailyExecutionChartsFromRunEvents(events) {
+  const list = Array.isArray(events) ? events : [];
+  /** @type {Map<string, { day: string, successCount: number, failureCount: number, totalCount: number, sumDurationMs: number, durationCount: number }>} */
+  const byDay = new Map();
+  let minMs = Number.POSITIVE_INFINITY;
+  let maxMs = Number.NEGATIVE_INFINITY;
+
+  for (const ev of list) {
+    const anchorMs = Number(ev?.runAtMs ?? ev?.ts);
+    if (!Number.isFinite(anchorMs)) continue;
+    minMs = Math.min(minMs, anchorMs);
+    maxMs = Math.max(maxMs, anchorMs);
+    const day = dayKeyFromMs(anchorMs);
+    const bucket =
+      byDay.get(day) ?? {
+        day,
+        successCount: 0,
+        failureCount: 0,
+        totalCount: 0,
+        sumDurationMs: 0,
+        durationCount: 0,
+      };
+    bucket.totalCount += 1;
+    if (isRunSuccessStatus(ev?.status)) bucket.successCount += 1;
+    else if (isRunFailureStatus(ev?.status)) bucket.failureCount += 1;
+    const dur = Number(ev?.durationMs);
+    if (Number.isFinite(dur) && dur >= 0) {
+      bucket.sumDurationMs += dur;
+      bucket.durationCount += 1;
+    }
+    byDay.set(day, bucket);
+  }
+
+  if (!byDay.size || !Number.isFinite(minMs) || !Number.isFinite(maxMs)) {
+    return { trend: [], range: {} };
+  }
+
+  const trend = [...byDay.values()]
+    .sort((a, b) => a.day.localeCompare(b.day))
+    .map((row) => ({
+      day: row.day,
+      successCount: row.successCount,
+      failureCount: row.failureCount,
+      totalCount: row.totalCount,
+      avgDurationMs: row.durationCount > 0 ? row.sumDurationMs / row.durationCount : null,
+    }));
+
+  return {
+    trend,
+    range: {
+      startIso: new Date(minMs).toISOString(),
+      endIso: new Date(maxMs).toISOString(),
+    },
   };
 }

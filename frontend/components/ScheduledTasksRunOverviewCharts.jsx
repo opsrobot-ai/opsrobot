@@ -2,6 +2,7 @@ import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 
 import ReactECharts from "echarts-for-react";
 import intl from "react-intl-universal";
 import Icon from "./Icon.jsx";
+import LogTimeRangePicker, { resolvePresetRangeMs } from "./LogTimeRangePicker.jsx";
 
 /** @param {number | null | undefined} ms */
 function formatAvgMsAxis(ms) {
@@ -27,6 +28,387 @@ function formatPct(n) {
   return `${n}%`;
 }
 
+/** @param {number | null | undefined} n */
+function formatTokenAxis(n) {
+  if (n == null || !Number.isFinite(n)) return "0";
+  const abs = Math.abs(Number(n));
+  if (abs >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
+  if (abs >= 1e3) return `${(n / 1e3).toFixed(1)}k`;
+  return String(Math.round(Number(n)));
+}
+
+/** Token 趋势按任务堆叠时的配色（与输入/输出双色区分） */
+const TOKEN_JOB_STACK_COLORS = [
+  "#3b82f6",
+  "#10b981",
+  "#f59e0b",
+  "#8b5cf6",
+  "#ec4899",
+  "#06b6d4",
+  "#84cc16",
+  "#f97316",
+];
+
+const JOB_TOP10_TABLE_DASH = "—";
+
+/** 运行概览图表区空状态占位高度，与有数据时 ECharts 高度一致，避免卡片塌缩 */
+const RUN_OVERVIEW_BAR_CHART_EMPTY_MIN_PX = 240;
+const RUN_OVERVIEW_PIE_CHART_EMPTY_MIN_PX = 300;
+
+/** 作业执行 Top10：展示单次最慢/最近执行的开始时刻（ISO 或后端 DATETIME 字符串） */
+function formatJobTop10ExecTime(raw) {
+  if (raw == null || String(raw).trim() === "") return JOB_TOP10_TABLE_DASH;
+  const t = Date.parse(String(raw));
+  if (!Number.isFinite(t)) return JOB_TOP10_TABLE_DASH;
+  return new Date(t).toLocaleString(undefined, {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+/** 成功率徽章：高为好（与主机资源「高为差」相反） */
+function jobTop10SuccessRateBadgeClass(pct) {
+  const n = Number(pct);
+  if (!Number.isFinite(n)) return "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200";
+  if (n >= 90) return "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/35 dark:text-emerald-300";
+  if (n >= 70) return "bg-amber-100 text-amber-700 dark:bg-amber-900/35 dark:text-amber-300";
+  return "bg-red-100 text-red-700 dark:bg-red-900/35 dark:text-red-300";
+}
+
+/**
+ * 任务 TOP10：表格式展示，版式对齐主机监控 TopHostsTable。
+ * @param {{
+ *   tab: "runCount" | "failCount" | "maxDur" | "avgDur" | "successRate",
+ *   rows: object[],
+ *   maxRows?: number,
+ *   showExecTimeColumn?: boolean,
+ *   showAgentColumn?: boolean,
+ *   showMetricProgressBars?: boolean,
+ *   hideJobIdColumn?: boolean,
+ *   rowDrillable?: boolean,
+ *   onJobRowClick?: (row: object) => void,
+ * }} props
+ */
+function JobTop10Table({
+  tab,
+  rows,
+  maxRows = 10,
+  showExecTimeColumn = false,
+  showAgentColumn = false,
+  showMetricProgressBars = false,
+  hideJobIdColumn = false,
+  rowDrillable = false,
+  onJobRowClick,
+}) {
+  const nameCol = intl.get("scheduledTasks.execution.colJobName");
+  const agentCol =
+    intl.get("scheduledTasks.runOverview.jobTop10ColAgentName") || intl.get("scheduledTasks.taskDetail.listTableColAgent");
+  const idCol = intl.get("scheduledTasks.execution.colJobId");
+  const execStatusCol = intl.get("scheduledTasks.runOverview.execJobTop10ColStatus");
+  const execTimeCol = intl.get("scheduledTasks.runOverview.execJobTop10ColExecTime");
+  const runsCol = intl.get("scheduledTasks.runOverview.analysisColRuns");
+  const failCol = intl.get("scheduledTasks.runOverview.analysisColFailRuns");
+  const okCol = intl.get("scheduledTasks.runOverview.analysisColOk");
+  const failShortCol = intl.get("scheduledTasks.runOverview.analysisColFail");
+  const srCol = intl.get("scheduledTasks.runOverview.analysisColSuccessRate");
+  const maxDurCol = intl.get("scheduledTasks.taskDetail.listColMaxDuration");
+  const avgDurCol = intl.get("scheduledTasks.taskDetail.listColAvgDuration");
+  const emptyText = intl.get("scheduledTasks.runOverview.chartEmpty");
+  const drillHint = intl.get("scheduledTasks.runOverview.jobTop10RowDrillHint");
+
+  const showExecTime = Boolean(showExecTimeColumn) && tab === "maxDur";
+  const showExecStatus = showExecTime;
+  const hideJobId = Boolean(hideJobIdColumn) || showExecTime;
+  const showAgent = Boolean(showAgentColumn);
+  const metricCols = tab === "runCount" ? 1 : tab === "successRate" ? 4 : 2;
+  let colSpan = 1 + (showExecStatus ? 1 : 0) + (showExecTime ? 1 : 0) + 1 + (showAgent ? 1 : 0) + (hideJobId ? 0 : 1) + metricCols;
+
+  const okStatusLabel = intl.get("scheduledTasks.execution.filterStatusSuccess");
+  const failStatusLabel = intl.get("scheduledTasks.execution.filterStatusFailure");
+  const otherStatusLabel = intl.get("scheduledTasks.runOverview.chartTrendSeriesOther");
+  const execStatusBadge = (raw) => {
+    const s = raw != null ? String(raw).trim() : "";
+    if (!s) return { text: JOB_TOP10_TABLE_DASH, cls: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200" };
+    const k = s.toLowerCase();
+    if (k === "success" || k === "succeeded" || k === "ok" || k === "completed") {
+      return { text: okStatusLabel, cls: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/35 dark:text-emerald-300" };
+    }
+    if (k === "error" || k === "failed" || k === "failure") {
+      return { text: failStatusLabel, cls: "bg-red-100 text-red-700 dark:bg-red-900/35 dark:text-red-300" };
+    }
+    return { text: otherStatusLabel || s, cls: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200" };
+  };
+
+  const thead = (
+    <thead className="bg-gray-50/80 dark:bg-gray-800/50">
+      <tr>
+        <th className="w-8 px-3 py-2 font-semibold text-gray-600 dark:text-gray-400">#</th>
+        {showExecStatus ? (
+          <th className="whitespace-nowrap px-3 py-2 font-semibold text-gray-600 dark:text-gray-400">{execStatusCol}</th>
+        ) : null}
+        {showExecTime ? (
+          <th className="whitespace-nowrap px-3 py-2 font-semibold text-gray-600 dark:text-gray-400">{execTimeCol}</th>
+        ) : null}
+        <th className="px-3 py-2 font-semibold text-gray-600 dark:text-gray-400">{nameCol}</th>
+        {showAgent ? (
+          <th className="px-3 py-2 font-semibold text-gray-600 dark:text-gray-400">{agentCol}</th>
+        ) : null}
+        {hideJobId ? null : <th className="px-3 py-2 font-semibold text-gray-600 dark:text-gray-400">{idCol}</th>}
+        {tab === "runCount" ? null : (
+          <th className="px-3 py-2 text-right font-semibold text-gray-600 dark:text-gray-400">{runsCol}</th>
+        )}
+        {tab === "failCount" ? (
+          <th className="px-3 py-2 text-right font-semibold text-gray-600 dark:text-gray-400">{failCol}</th>
+        ) : null}
+        {tab === "maxDur" ? (
+          <th className="px-3 py-2 text-right font-semibold text-gray-600 dark:text-gray-400">{maxDurCol}</th>
+        ) : null}
+        {tab === "avgDur" ? (
+          <th className="px-3 py-2 text-right font-semibold text-gray-600 dark:text-gray-400">{avgDurCol}</th>
+        ) : null}
+        {tab === "successRate" ? (
+          <>
+            <th className="px-3 py-2 text-right font-semibold text-gray-600 dark:text-gray-400">{okCol}</th>
+            <th className="px-3 py-2 text-right font-semibold text-gray-600 dark:text-gray-400">{failShortCol}</th>
+            <th className="px-3 py-2 text-right font-semibold text-gray-600 dark:text-gray-400">{srCol}</th>
+          </>
+        ) : null}
+        {tab === "runCount" ? (
+          <th className="px-3 py-2 text-right font-semibold text-gray-600 dark:text-gray-400">{runsCol}</th>
+        ) : null}
+      </tr>
+    </thead>
+  );
+
+  if (!rows || rows.length === 0) {
+    return (
+      <div className="overflow-x-auto rounded-xl border border-gray-100 dark:border-gray-800">
+        <table className="min-w-full text-left text-xs">
+          {thead}
+          <tbody>
+            <tr>
+              <td colSpan={colSpan} className="px-3 py-4 text-center text-gray-400 dark:text-gray-500">
+                {emptyText}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
+  const slice = rows.slice(0, maxRows);
+  const showProgressBar =
+    showExecTime ||
+    (Boolean(showMetricProgressBars) &&
+      !showExecTime &&
+      (tab === "runCount" || tab === "failCount" || tab === "avgDur" || tab === "successRate"));
+  let progressMax = 1;
+  if (showProgressBar && showExecTime) {
+    for (const r of slice) {
+      const v = r?.maxDurationMs != null && Number.isFinite(Number(r.maxDurationMs)) ? Number(r.maxDurationMs) : 0;
+      progressMax = Math.max(progressMax, v);
+    }
+  } else if (showProgressBar && !showExecTime) {
+    if (tab === "runCount") {
+      for (const r of slice) progressMax = Math.max(progressMax, Number(r?.runCount) || 0);
+    } else if (tab === "failCount") {
+      for (const r of slice) progressMax = Math.max(progressMax, Number(r?.failureCount) || 0);
+    } else if (tab === "avgDur") {
+      for (const r of slice) {
+        const v = r?.avgDurationMs != null && Number.isFinite(Number(r.avgDurationMs)) ? Number(r.avgDurationMs) : 0;
+        progressMax = Math.max(progressMax, v);
+      }
+    } else if (tab === "successRate") {
+      progressMax = 100;
+    }
+  }
+
+  return (
+    <div className="overflow-x-auto rounded-xl border border-gray-100 dark:border-gray-800">
+      <table className="min-w-full text-left text-xs">
+        {thead}
+        <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+          {slice.map((row, index) => {
+            const runs = Number(row.runCount) || 0;
+            const fails = Number(row.failureCount) || 0;
+            const ok = Number(row.successCount) || 0;
+            const sr = row.successRatePct != null && Number.isFinite(Number(row.successRatePct)) ? Number(row.successRatePct) : null;
+            const maxMs = row.maxDurationMs != null && Number.isFinite(Number(row.maxDurationMs)) ? Number(row.maxDurationMs) : null;
+            const avgMs = row.avgDurationMs != null && Number.isFinite(Number(row.avgDurationMs)) ? Number(row.avgDurationMs) : null;
+            const execAtRaw = showExecTime ? row.maxDurationRunStartedAt : null;
+            const execStatusRaw = showExecTime ? row.maxDurationRunStatus : null;
+            const execStatus = showExecStatus ? execStatusBadge(execStatusRaw) : null;
+            const agentNameStr = row.jobAgentName != null && String(row.jobAgentName).trim() ? String(row.jobAgentName).trim() : "";
+            const agentIdStr = row.jobAgentId != null && String(row.jobAgentId).trim() ? String(row.jobAgentId).trim() : "";
+            const agentColumnText = agentNameStr || agentIdStr || JOB_TOP10_TABLE_DASH;
+            const clickable = Boolean(rowDrillable && onJobRowClick && row?.jobId != null && String(row.jobId).trim());
+            return (
+              <tr
+                key={String(row.jobId ?? index)}
+                className={[
+                  "transition-colors",
+                  clickable
+                    ? "cursor-pointer hover:bg-primary/5 focus-within:bg-primary/5 dark:hover:bg-primary/10"
+                    : "hover:bg-gray-50 dark:hover:bg-gray-800/30",
+                ].join(" ")}
+                onClick={() => {
+                  if (!clickable) return;
+                  onJobRowClick(row);
+                }}
+                onKeyDown={(e) => {
+                  if (!clickable) return;
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onJobRowClick(row);
+                  }
+                }}
+                role={clickable ? "button" : undefined}
+                tabIndex={clickable ? 0 : undefined}
+                aria-label={clickable ? `${row.jobName ? String(row.jobName) : String(row.jobId)}。${drillHint}` : undefined}
+              >
+                <td className="px-3 py-2 text-gray-500 dark:text-gray-400">{index + 1}</td>
+                {showExecStatus ? (
+                  <td className="whitespace-nowrap px-3 py-2">
+                    <span className={["inline-flex min-w-[3.25rem] items-center justify-center rounded-md px-2 py-0.5 text-[11px] font-semibold", execStatus?.cls].join(" ")}>
+                      {execStatus?.text ?? JOB_TOP10_TABLE_DASH}
+                    </span>
+                  </td>
+                ) : null}
+                {showExecTime ? (
+                  <td className="whitespace-nowrap px-3 py-2 text-gray-700 dark:text-gray-300">{formatJobTop10ExecTime(execAtRaw)}</td>
+                ) : null}
+                <td className="max-w-[180px] px-3 py-2 font-medium text-gray-800 dark:text-gray-200">
+                  <div className="truncate">{row.jobName ? String(row.jobName) : JOB_TOP10_TABLE_DASH}</div>
+                  {!showExecTime && !showAgent && agentColumnText !== JOB_TOP10_TABLE_DASH ? (
+                    <div className="mt-0.5 truncate font-mono text-[10px] font-normal text-gray-500 dark:text-gray-400">{agentColumnText}</div>
+                  ) : null}
+                </td>
+                {showAgent ? (
+                  <td className="max-w-[160px] truncate px-3 py-2 text-gray-700 dark:text-gray-300" title={agentColumnText}>
+                    {agentColumnText}
+                  </td>
+                ) : null}
+                {hideJobId ? null : (
+                  <td className="max-w-[120px] truncate px-3 py-2 font-mono text-[10px] text-gray-600 dark:text-gray-400">{String(row.jobId ?? "")}</td>
+                )}
+                {tab === "runCount" ? (
+                  <td className="px-3 py-2 text-right text-gray-900 dark:text-gray-100">
+                    {showProgressBar && !showExecTime ? (
+                      <div className="flex flex-col items-end gap-1">
+                        <span className="font-mono tabular-nums">{runs}</span>
+                        <div className="h-1.5 w-28 rounded-full bg-gray-100 dark:bg-gray-800">
+                          <div
+                            className="h-1.5 rounded-full bg-primary"
+                            style={{ width: `${Math.min(100, Math.max(0, (runs / progressMax) * 100))}%` }}
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <span className="font-mono tabular-nums">{runs}</span>
+                    )}
+                  </td>
+                ) : null}
+                {tab === "failCount" || tab === "maxDur" || tab === "avgDur" || tab === "successRate" ? (
+                  <td className="px-3 py-2 text-right font-mono tabular-nums text-gray-900 dark:text-gray-100">{runs}</td>
+                ) : null}
+                {tab === "failCount" ? (
+                  <td className="px-3 py-2 text-right text-gray-900 dark:text-gray-100">
+                    {showProgressBar && !showExecTime ? (
+                      <div className="flex flex-col items-end gap-1">
+                        <span className="font-mono tabular-nums">{fails}</span>
+                        <div className="h-1.5 w-28 rounded-full bg-gray-100 dark:bg-gray-800">
+                          <div
+                            className="h-1.5 rounded-full bg-primary"
+                            style={{ width: `${Math.min(100, Math.max(0, (fails / progressMax) * 100))}%` }}
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <span className="font-mono tabular-nums">{fails}</span>
+                    )}
+                  </td>
+                ) : null}
+                {tab === "maxDur" ? (
+                  <td className="px-3 py-2 text-right text-gray-900 dark:text-gray-100">
+                    <div className="flex flex-col items-end gap-1">
+                      <span className="font-mono tabular-nums">{maxMs != null ? formatDurationMs(maxMs) : JOB_TOP10_TABLE_DASH}</span>
+                      {showProgressBar ? (
+                        <div className="h-1.5 w-28 rounded-full bg-gray-100 dark:bg-gray-800">
+                          <div
+                            className="h-1.5 rounded-full bg-primary"
+                            style={{ width: `${Math.min(100, Math.max(0, ((maxMs ?? 0) / progressMax) * 100))}%` }}
+                          />
+                        </div>
+                      ) : null}
+                    </div>
+                  </td>
+                ) : null}
+                {tab === "avgDur" ? (
+                  <td className="px-3 py-2 text-right text-gray-900 dark:text-gray-100">
+                    {showProgressBar && !showExecTime ? (
+                      <div className="flex flex-col items-end gap-1">
+                        <span className="font-mono tabular-nums">{avgMs != null ? formatDurationMs(avgMs) : JOB_TOP10_TABLE_DASH}</span>
+                        <div className="h-1.5 w-28 rounded-full bg-gray-100 dark:bg-gray-800">
+                          <div
+                            className="h-1.5 rounded-full bg-primary"
+                            style={{ width: `${Math.min(100, Math.max(0, (((avgMs ?? 0) / progressMax) * 100))) }%` }}
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <span className="font-mono tabular-nums">{avgMs != null ? formatDurationMs(avgMs) : JOB_TOP10_TABLE_DASH}</span>
+                    )}
+                  </td>
+                ) : null}
+                {tab === "successRate" ? (
+                  <>
+                    <td className="px-3 py-2 text-right font-mono tabular-nums text-gray-900 dark:text-gray-100">{ok}</td>
+                    <td className="px-3 py-2 text-right font-mono tabular-nums text-gray-900 dark:text-gray-100">{fails}</td>
+                    <td className="px-3 py-2 text-right">
+                      {showProgressBar && !showExecTime ? (
+                        <div className="flex flex-col items-end gap-1">
+                          <span
+                            className={[
+                              "inline-flex min-w-[3rem] justify-end rounded-md px-2 py-0.5 text-[11px] font-semibold tabular-nums",
+                              jobTop10SuccessRateBadgeClass(sr ?? NaN),
+                            ].join(" ")}
+                          >
+                            {sr != null ? formatPct(sr) : JOB_TOP10_TABLE_DASH}
+                          </span>
+                          <div className="h-1.5 w-28 rounded-full bg-gray-100 dark:bg-gray-800">
+                            <div
+                              className="h-1.5 rounded-full bg-primary"
+                              style={{ width: `${Math.min(100, Math.max(0, ((Number(sr) || 0) / progressMax) * 100))}%` }}
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        <span
+                          className={[
+                            "inline-flex min-w-[3rem] justify-end rounded-md px-2 py-0.5 text-[11px] font-semibold tabular-nums",
+                            jobTop10SuccessRateBadgeClass(sr ?? NaN),
+                          ].join(" ")}
+                        >
+                          {sr != null ? formatPct(sr) : JOB_TOP10_TABLE_DASH}
+                        </span>
+                      )}
+                    </td>
+                  </>
+                ) : null}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 /** 与趋势图一致：将接口 `day` 规范为 `YYYY-MM-DD` */
 function normalizeTrendDayLabel(raw) {
   if (raw == null) return "";
@@ -47,6 +429,16 @@ function isoToLocalDayStr(iso) {
   const t = Date.parse(String(iso));
   if (!Number.isFinite(t)) return null;
   const d = new Date(t);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/** 本地时区日历日 `YYYY-MM-DD`（与 `isoToLocalDayStr` 一致） */
+function msToLocalYmd(ms) {
+  if (!Number.isFinite(ms)) return null;
+  const d = new Date(ms);
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
@@ -490,7 +882,6 @@ function CountVerticalRangeSlider({ kind, domainMax, min, max, setMin, setMax })
   );
 }
 
-
 /**
  * @param {{
  *   charts: object | null,
@@ -499,15 +890,28 @@ function CountVerticalRangeSlider({ kind, domainMax, min, max, setMin, setMax })
  * }} props
  * error 由父级统一展示横幅，此处仅接收 loading / charts。
  */
-export default function ScheduledTasksRunOverviewCharts({ charts, loading, heatmapOnly = false }) {
+export default function ScheduledTasksRunOverviewCharts({
+  charts,
+  loading,
+  heatmapOnly = false,
+  onOpenTaskDetail,
+  onOpenExecutionForJob,
+}) {
   const [heatmapMetric, setHeatmapMetric] = useState(/** @type {"total" | "failures" | "successRate"} */ ("total"));
-  /** 热力图格子内展示项：日期、执行次数、失败次数、成功率 */
+  /** 与日志检索相同的时间预设 + 自定义区间；在已加载的 chart 时间范围内取交集 */
+  const [heatmapTimePreset, setHeatmapTimePreset] = useState("30d");
+  const [heatmapCustomStart, setHeatmapCustomStart] = useState("");
+  const [heatmapCustomEnd, setHeatmapCustomEnd] = useState("");
+  /** 热力图格子内展示项：日期、执行次数、失败次数、成功率（默认仅显示成功率） */
   const [heatmapDisplay, setHeatmapDisplay] = useState(() => ({
-    dates: true,
-    totalRuns: true,
-    failures: true,
+    dates: false,
+    totalRuns: false,
+    failures: false,
     successRate: true,
   }));
+  /** `<details>` 点击外部不会收起，改用受控菜单 + 文档 mousedown 关闭 */
+  const [heatmapDisplayOpen, setHeatmapDisplayOpen] = useState(false);
+  const heatmapDisplayMenuRef = useRef(null);
   /** 成功率视图：仅显示成功率 ∈ [min,max] 的日期（0–100）；其它指标下不使用 */
   const [srFilterMin, setSrFilterMin] = useState(0);
   const [srFilterMax, setSrFilterMax] = useState(100);
@@ -519,22 +923,39 @@ export default function ScheduledTasksRunOverviewCharts({ charts, loading, heatm
   const [failFilterMax, setFailFilterMax] = useState(1);
   const trend = Array.isArray(charts?.trend) ? charts.trend : [];
 
+  useEffect(() => {
+    if (!heatmapDisplayOpen) return;
+    const onDoc = (e) => {
+      const t = /** @type {Node} */ (e.target);
+      if (heatmapDisplayMenuRef.current?.contains(t)) return;
+      setHeatmapDisplayOpen(false);
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") setHeatmapDisplayOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [heatmapDisplayOpen]);
+
   const slowTop10 = Array.isArray(charts?.slowTop10) ? charts.slowTop10 : [];
-  const tokenTop10 = Array.isArray(charts?.tokenTop10) ? charts.tokenTop10 : [];
   const jt = charts?.jobTop10Analysis && typeof charts.jobTop10Analysis === "object" ? charts.jobTop10Analysis : {};
   const byRunCount = Array.isArray(jt.byRunCount) ? jt.byRunCount : [];
   const byFailCount = Array.isArray(jt.byFailCount) ? jt.byFailCount : [];
   const byMaxDurationMs = Array.isArray(jt.byMaxDurationMs) ? jt.byMaxDurationMs : slowTop10;
   const byAvgDurationMs = Array.isArray(jt.byAvgDurationMs) ? jt.byAvgDurationMs : [];
   const bySuccessRate = Array.isArray(jt.bySuccessRate) ? jt.bySuccessRate : [];
-  const byTokenTotal = Array.isArray(jt.byTokenTotal) ? jt.byTokenTotal : tokenTop10;
   const distribution = charts?.distribution && typeof charts.distribution === "object" ? charts.distribution : {};
   const failureReasonDistribution = Array.isArray(charts?.failureReasonDistribution)
     ? charts.failureReasonDistribution
     : [];
+  const tokenDistributionByJob = Array.isArray(charts?.tokenDistributionByJob) ? charts.tokenDistributionByJob : [];
   const chartRange = charts?.range && typeof charts.range === "object" ? charts.range : {};
 
-  /** @type {"runCount" | "failCount" | "maxDur" | "avgDur" | "successRate" | "tokenTotal"} */
+  /** @type {"runCount" | "failCount" | "avgDur" | "successRate"} */
   const [jobTop10Tab, setJobTop10Tab] = useState("runCount");
 
   const trendOption = useMemo(() => {
@@ -669,6 +1090,172 @@ export default function ScheduledTasksRunOverviewCharts({ charts, loading, heatm
     };
   }, [trend]);
 
+  const dailyTokenTrendOption = useMemo(() => {
+    if (!trend.length) return null;
+    const days = trend.map((t) => normalizeTrendDayLabel(t.day));
+    const tokenTrendRows = Array.isArray(charts?.tokenTrendByJob) ? charts.tokenTrendByJob : [];
+    const tokAxis = intl.get("scheduledTasks.runOverview.chartTokenAxis");
+    const countLbl = intl.get("scheduledTasks.runOverview.failureReason.tooltipCount");
+
+    const buildByJobStack = () => {
+      if (!tokenTrendRows.length) return null;
+      const TOP_N = 8;
+      const jobTotals = new Map();
+      for (const r of tokenTrendRows) {
+        const jid = String(r.jobId ?? "").trim();
+        if (!jid) continue;
+        jobTotals.set(jid, (jobTotals.get(jid) || 0) + (Number(r.totalTokens) || 0));
+      }
+      if (!jobTotals.size) return null;
+      const topJobIds = [...jobTotals.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, TOP_N)
+        .map(([id]) => id);
+      const jobNameById = new Map();
+      for (const r of tokenTrendRows) {
+        const jid = String(r.jobId ?? "").trim();
+        if (!jid || !topJobIds.includes(jid)) continue;
+        if (!jobNameById.has(jid)) {
+          const nm = r.jobName != null && String(r.jobName).trim() ? String(r.jobName).trim() : jid;
+          jobNameById.set(jid, nm);
+        }
+      }
+      const cell = new Map();
+      for (const r of tokenTrendRows) {
+        const d = normalizeTrendDayLabel(r.day);
+        const jid = String(r.jobId ?? "").trim();
+        if (!d || !jid) continue;
+        const k = `${d}\t${jid}`;
+        cell.set(k, (cell.get(k) || 0) + (Number(r.totalTokens) || 0));
+      }
+      /** @type {object[]} */
+      const series = [];
+      for (let i = 0; i < topJobIds.length; i++) {
+        const jid = topJobIds[i];
+        const rawName = jobNameById.get(jid) || jid;
+        const short = String(rawName).length > 16 ? `${String(rawName).slice(0, 15)}…` : String(rawName);
+        const data = days.map((d) => Math.floor(cell.get(`${d}\t${jid}`) || 0));
+        series.push({
+          name: short,
+          type: "bar",
+          stack: "jobTok",
+          barMaxWidth: 22,
+          itemStyle: { color: TOKEN_JOB_STACK_COLORS[i % TOKEN_JOB_STACK_COLORS.length] },
+          data,
+        });
+      }
+      const otherLbl = intl.get("scheduledTasks.runOverview.tokenTrendByJobOther");
+      const otherData = days.map((d) => {
+        let s = 0;
+        for (const r of tokenTrendRows) {
+          if (normalizeTrendDayLabel(r.day) !== d) continue;
+          const jid = String(r.jobId ?? "").trim();
+          if (!jid || topJobIds.includes(jid)) continue;
+          s += Number(r.totalTokens) || 0;
+        }
+        return Math.floor(s);
+      });
+      if (otherData.some((v) => v > 0)) {
+        series.push({
+          name: otherLbl,
+          type: "bar",
+          stack: "jobTok",
+          barMaxWidth: 22,
+          itemStyle: { color: "#94a3b8" },
+          data: otherData,
+        });
+      }
+      const hasAny = series.some((s) => Array.isArray(s.data) && s.data.some((v) => Number(v) > 0));
+      if (!hasAny) return null;
+      const legendNames = series.map((s) => String(s.name ?? ""));
+      return {
+        tooltip: {
+          trigger: "axis",
+          axisPointer: { type: "shadow" },
+          textStyle: { fontSize: 12 },
+          formatter(params) {
+            if (!Array.isArray(params) || !params.length) return "";
+            const day = params[0]?.axisValue ?? "";
+            const sum = params.reduce((acc, p) => acc + (Number(p?.data) || 0), 0);
+            const lines = [day];
+            for (const p of params) {
+              lines.push(`${p.marker}${p.seriesName}: ${formatTokenAxis(Number(p?.data) || 0)}`);
+            }
+            lines.push(`${tokAxis} ${countLbl}: ${formatTokenAxis(sum)}`);
+            return lines.join("<br/>");
+          },
+        },
+        legend: { type: "scroll", data: legendNames, bottom: 0, textStyle: { fontSize: 11, color: "#64748b" } },
+        grid: { left: 56, right: 20, top: 20, bottom: 56 },
+        xAxis: {
+          type: "category",
+          data: days,
+          axisLabel: { fontSize: 10, color: "#64748b", rotate: days.length > 10 ? 32 : 0 },
+        },
+        yAxis: {
+          type: "value",
+          name: tokAxis,
+          min: 0,
+          axisLabel: { fontSize: 10, color: "#64748b", formatter: (v) => formatTokenAxis(Number(v)) },
+          splitLine: { lineStyle: { color: "#f1f5f9" } },
+        },
+        series,
+      };
+    };
+
+    const byJob = buildByJobStack();
+    if (byJob) return byJob;
+
+    const inputLabel = intl.get("scheduledTasks.runOverview.chartDailyTokenTrendSeriesInput");
+    const outputLabel = intl.get("scheduledTasks.runOverview.chartDailyTokenTrendSeriesOutput");
+    const inData = trend.map((t) => {
+      const v = Number(t?.inputTokens);
+      return Number.isFinite(v) && v > 0 ? Math.floor(v) : 0;
+    });
+    const outData = trend.map((t) => {
+      const v = Number(t?.outputTokens);
+      return Number.isFinite(v) && v > 0 ? Math.floor(v) : 0;
+    });
+    const hasAny = inData.some((v) => v > 0) || outData.some((v) => v > 0);
+    if (!hasAny) return null;
+    return {
+      tooltip: {
+        trigger: "axis",
+        axisPointer: { type: "shadow" },
+        textStyle: { fontSize: 12 },
+        formatter(params) {
+          if (!Array.isArray(params) || !params.length) return "";
+          const day = params[0]?.axisValue ?? "";
+          const sum = params.reduce((acc, p) => acc + (Number(p?.data) || 0), 0);
+          const lines = [day];
+          for (const p of params) {
+            lines.push(`${p.marker}${p.seriesName}: ${formatTokenAxis(Number(p?.data) || 0)}`);
+          }
+          lines.push(`${intl.get("scheduledTasks.runOverview.analysisColTokens")}: ${formatTokenAxis(sum)}`);
+          return lines.join("<br/>");
+        },
+      },
+      legend: { data: [inputLabel, outputLabel], bottom: 0, textStyle: { fontSize: 11, color: "#64748b" } },
+      grid: { left: 56, right: 20, top: 20, bottom: 44 },
+      xAxis: {
+        type: "category",
+        data: days,
+        axisLabel: { fontSize: 10, color: "#64748b", rotate: days.length > 10 ? 32 : 0 },
+      },
+      yAxis: {
+        type: "value",
+        name: tokAxis,
+        min: 0,
+        axisLabel: { fontSize: 10, color: "#64748b", formatter: (v) => formatTokenAxis(Number(v)) },
+        splitLine: { lineStyle: { color: "#f1f5f9" } },
+      },
+      series: [
+        { name: inputLabel, type: "bar", stack: "tok", barMaxWidth: 28, itemStyle: { color: "#3b82f6" }, data: inData },
+        { name: outputLabel, type: "bar", stack: "tok", barMaxWidth: 28, itemStyle: { color: "#10b981" }, data: outData },
+      ],
+    };
+  }, [trend, charts?.tokenTrendByJob]);
+
   const pieOption = useMemo(() => {
     const data = [
       { key: "success", labelKey: "scheduledTasks.runOverview.dist.runSuccess" },
@@ -739,267 +1326,87 @@ export default function ScheduledTasksRunOverviewCharts({ charts, loading, heatm
           radius: ["34%", "58%"],
           center: ["58%", "50%"],
           data,
-          label: { fontSize: 9 },
+          label: {
+            fontSize: 9,
+            formatter: (p) => {
+              const c = p.value ?? 0;
+              const cnt = intl.get("scheduledTasks.runOverview.failureReason.tooltipCount");
+              const name = p.name ?? "";
+              return `${name}\n${cnt}: ${c}`;
+            },
+          },
         },
       ],
     };
   }, [failureReasonDistribution]);
 
-  const jobTop10BarOption = useMemo(() => {
-    let rows =
-      jobTop10Tab === "runCount"
-        ? [...byRunCount].filter((r) => r?.jobId)
-        : jobTop10Tab === "failCount"
-          ? [...byFailCount].filter((r) => r?.jobId)
-          : jobTop10Tab === "maxDur"
-            ? [...byMaxDurationMs].filter((r) => r?.jobId)
-            : jobTop10Tab === "avgDur"
-              ? [...byAvgDurationMs].filter((r) => r?.jobId)
-              : jobTop10Tab === "successRate"
-                ? [...bySuccessRate].filter((r) => r?.jobId)
-                : [...byTokenTotal].filter((r) => r?.jobId);
-    rows = rows.reverse();
+  const tokenJobPieOption = useMemo(() => {
+    const rows = tokenDistributionByJob.filter((r) => r && (Number(r.totalTokens) || 0) > 0);
     if (!rows.length) return null;
-    const names = rows.map((r) => (r.jobName ? String(r.jobName) : String(r.jobId)));
-    const runsLbl = intl.get("scheduledTasks.runOverview.analysisColRuns");
-    const failLbl = intl.get("scheduledTasks.runOverview.analysisColFailRuns");
-    const okLbl = intl.get("scheduledTasks.runOverview.analysisColOk");
-    const srLbl = intl.get("scheduledTasks.runOverview.analysisColSuccessRate");
+    const otherLbl = intl.get("scheduledTasks.runOverview.tokenDistPieOther");
     const tokLbl = intl.get("scheduledTasks.runOverview.analysisColTokens");
-    if (jobTop10Tab === "runCount") {
-      const vals = rows.map((r) => Number(r.runCount) || 0);
+    const data = rows.map((r) => {
+      const jid = String(r.jobId ?? "");
+      const isOther = jid === "__other__";
+      const rawName = r.jobName ? String(r.jobName).trim() : "";
+      const displayName = rawName || jid;
+      const label = isOther ? otherLbl : displayName.length > 36 ? `${displayName.slice(0, 35)}…` : displayName;
       return {
-        tooltip: {
-          trigger: "axis",
-          axisPointer: { type: "shadow" },
-          textStyle: { fontSize: 12 },
-          formatter: (p) => {
-            const x = Array.isArray(p) ? p[0] : p;
-            const idx = x?.dataIndex;
-            const row = typeof idx === "number" ? rows[idx] : null;
-            if (!row) return "";
-            return `${row.jobName ?? row.jobId}<br/>${runsLbl}: ${row.runCount ?? 0}`;
-          },
-        },
-        grid: { left: 120, right: 44, top: 8, bottom: 8 },
-        xAxis: { type: "value", min: 0, minInterval: 1, axisLabel: { fontSize: 10, color: "#64748b" } },
-        yAxis: { type: "category", data: names, axisLabel: { fontSize: 10, color: "#64748b", width: 110, overflow: "truncate" } },
-        series: [
-          {
-            type: "bar",
-            data: vals,
-            barMaxWidth: 18,
-            itemStyle: { color: "#3b82f6" },
-            label: {
-              show: true,
-              position: "right",
-              distance: 6,
-              fontSize: 10,
-              color: "#64748b",
-              formatter: (p) => String(Math.round(Number(p.value) || 0)),
-            },
-          },
-        ],
+        value: Number(r.totalTokens) || 0,
+        name: label,
+        fullName: isOther ? otherLbl : displayName,
       };
-    }
-    if (jobTop10Tab === "failCount") {
-      const vals = rows.map((r) => Number(r.failureCount) || 0);
-      return {
-        tooltip: {
-          trigger: "axis",
-          axisPointer: { type: "shadow" },
-          textStyle: { fontSize: 12 },
-          formatter: (p) => {
-            const x = Array.isArray(p) ? p[0] : p;
-            const idx = x?.dataIndex;
-            const row = typeof idx === "number" ? rows[idx] : null;
-            if (!row) return "";
-            return `${row.jobName ?? row.jobId}<br/>${failLbl}: ${row.failureCount ?? 0}<br/>${runsLbl}: ${row.runCount ?? 0}`;
-          },
-        },
-        grid: { left: 120, right: 44, top: 8, bottom: 8 },
-        xAxis: { type: "value", min: 0, minInterval: 1, axisLabel: { fontSize: 10, color: "#64748b" } },
-        yAxis: { type: "category", data: names, axisLabel: { fontSize: 10, color: "#64748b", width: 110, overflow: "truncate" } },
-        series: [
-          {
-            type: "bar",
-            data: vals,
-            barMaxWidth: 18,
-            itemStyle: { color: "#f43f5e" },
-            label: {
-              show: true,
-              position: "right",
-              distance: 6,
-              fontSize: 10,
-              color: "#64748b",
-              formatter: (p) => String(Math.round(Number(p.value) || 0)),
-            },
-          },
-        ],
-      };
-    }
-    if (jobTop10Tab === "maxDur") {
-      const vals = rows.map((r) => (r.maxDurationMs != null && Number.isFinite(Number(r.maxDurationMs)) ? Number(r.maxDurationMs) : 0));
-      return {
-        tooltip: {
-          trigger: "axis",
-          axisPointer: { type: "shadow" },
-          textStyle: { fontSize: 12 },
-          formatter: (p) => {
-            const x = Array.isArray(p) ? p[0] : p;
-            const ms = x?.value;
-            return `${x?.name ?? ""}<br/>${formatDurationMs(Number(ms))}`;
-          },
-        },
-        grid: { left: 120, right: 72, top: 8, bottom: 8 },
-        xAxis: { type: "value", axisLabel: { fontSize: 10, color: "#64748b", formatter: (v) => formatAvgMsAxis(Number(v)) } },
-        yAxis: { type: "category", data: names, axisLabel: { fontSize: 10, color: "#64748b", width: 110, overflow: "truncate" } },
-        series: [
-          {
-            type: "bar",
-            data: vals,
-            barMaxWidth: 18,
-            itemStyle: { color: "#f97316" },
-            label: {
-              show: true,
-              position: "right",
-              distance: 6,
-              fontSize: 10,
-              color: "#64748b",
-              formatter: (p) => formatDurationMs(Number(p.value)),
-            },
-          },
-        ],
-      };
-    }
-    if (jobTop10Tab === "avgDur") {
-      const vals = rows.map((r) =>
-        r.avgDurationMs != null && Number.isFinite(Number(r.avgDurationMs)) ? Number(r.avgDurationMs) : 0,
-      );
-      return {
-        tooltip: {
-          trigger: "axis",
-          axisPointer: { type: "shadow" },
-          textStyle: { fontSize: 12 },
-          formatter: (p) => {
-            const x = Array.isArray(p) ? p[0] : p;
-            const idx = x?.dataIndex;
-            const row = typeof idx === "number" ? rows[idx] : null;
-            if (!row) return "";
-            return `${row.jobName ?? row.jobId}<br/>${formatDurationMs(Number(row.avgDurationMs))}`;
-          },
-        },
-        grid: { left: 120, right: 72, top: 8, bottom: 8 },
-        xAxis: { type: "value", axisLabel: { fontSize: 10, color: "#64748b", formatter: (v) => formatAvgMsAxis(Number(v)) } },
-        yAxis: { type: "category", data: names, axisLabel: { fontSize: 10, color: "#64748b", width: 110, overflow: "truncate" } },
-        series: [
-          {
-            type: "bar",
-            data: vals,
-            barMaxWidth: 18,
-            itemStyle: { color: "#6366f1" },
-            label: {
-              show: true,
-              position: "right",
-              distance: 6,
-              fontSize: 10,
-              color: "#64748b",
-              formatter: (p) => formatDurationMs(Number(p.value)),
-            },
-          },
-        ],
-      };
-    }
-    if (jobTop10Tab === "successRate") {
-      const vals = rows.map((r) =>
-        r.successRatePct != null && Number.isFinite(Number(r.successRatePct)) ? Number(r.successRatePct) : 0,
-      );
-      return {
-        tooltip: {
-          trigger: "axis",
-          axisPointer: { type: "shadow" },
-          textStyle: { fontSize: 12 },
-          formatter: (p) => {
-            const x = Array.isArray(p) ? p[0] : p;
-            const idx = x?.dataIndex;
-            const row = typeof idx === "number" ? rows[idx] : null;
-            if (!row) return "";
-            return `${row.jobName ?? row.jobId}<br/>${srLbl}: ${formatPct(row.successRatePct)}<br/>${runsLbl}: ${row.runCount ?? 0}<br/>${okLbl}: ${row.successCount ?? 0}<br/>${failLbl}: ${row.failureCount ?? 0}`;
-          },
-        },
-        grid: { left: 120, right: 52, top: 8, bottom: 8 },
-        xAxis: {
-          type: "value",
-          min: 0,
-          max: 100,
-          axisLabel: { fontSize: 10, color: "#64748b", formatter: (v) => `${v}%` },
-        },
-        yAxis: { type: "category", data: names, axisLabel: { fontSize: 10, color: "#64748b", width: 110, overflow: "truncate" } },
-        series: [
-          {
-            type: "bar",
-            data: vals,
-            barMaxWidth: 18,
-            itemStyle: { color: "#22c55e" },
-            label: {
-              show: true,
-              position: "right",
-              distance: 6,
-              fontSize: 10,
-              color: "#64748b",
-              formatter: (p) => formatPct(Number(p.value)),
-            },
-          },
-        ],
-      };
-    }
-    const vals = rows.map((r) => Number(r.totalTokens) || 0);
+    });
     return {
       tooltip: {
-        trigger: "axis",
-        axisPointer: { type: "shadow" },
+        trigger: "item",
         textStyle: { fontSize: 12 },
         formatter: (p) => {
-          const x = Array.isArray(p) ? p[0] : p;
-          const idx = x?.dataIndex;
-          const row = typeof idx === "number" ? rows[idx] : null;
-          if (!row) return "";
-          return `${row.jobName ?? row.jobId}<br/>${tokLbl}: ${row.totalTokens ?? 0}`;
+          const raw = p?.data;
+          const fullName =
+            raw && typeof raw === "object" && raw.fullName != null ? String(raw.fullName) : String(p?.name ?? "");
+          const v = p?.value ?? 0;
+          const pct = p?.percent != null ? Number(p.percent).toFixed(1) : "";
+          return `${fullName}<br/>${tokLbl}: ${formatTokenAxis(Number(v))}${pct !== "" ? ` (${pct}%)` : ""}`;
         },
       },
-      grid: { left: 120, right: 52, top: 8, bottom: 8 },
-      xAxis: {
-        type: "value",
-        name: intl.get("scheduledTasks.runOverview.chartTokenAxis"),
-        axisLabel: { fontSize: 10, color: "#64748b" },
+      legend: {
+        type: "scroll",
+        orient: "vertical",
+        left: 0,
+        top: "middle",
+        icon: "roundRect",
+        itemWidth: 10,
+        itemHeight: 10,
+        itemGap: 10,
+        textStyle: { fontSize: 11, color: "#64748b" },
       },
-      yAxis: { type: "category", data: names, axisLabel: { fontSize: 10, color: "#64748b", width: 110, overflow: "truncate" } },
       series: [
         {
-          type: "bar",
-          data: vals,
-          barMaxWidth: 18,
-          itemStyle: { color: "#8b5cf6" },
-          label: {
-            show: true,
-            position: "right",
-            distance: 6,
-            fontSize: 10,
-            color: "#64748b",
-            formatter: (p) => String(Math.round(Number(p.value) || 0)),
-          },
+          type: "pie",
+          radius: ["34%", "58%"],
+          center: ["58%", "50%"],
+          data,
+          label: { fontSize: 9 },
         },
       ],
     };
-  }, [
-    jobTop10Tab,
-    byRunCount,
-    byFailCount,
-    byMaxDurationMs,
-    byAvgDurationMs,
-    bySuccessRate,
-    byTokenTotal,
-  ]);
+  }, [tokenDistributionByJob]);
+
+  /** 与原先柱状图一致：仅含 jobId 的行，API 返回多为「低→高」，展示为排名「高→低」故 reverse */
+  const jobTop10Rows = useMemo(() => {
+    const src =
+      jobTop10Tab === "runCount"
+        ? byRunCount
+        : jobTop10Tab === "failCount"
+          ? byFailCount
+          : jobTop10Tab === "avgDur"
+            ? byAvgDurationMs
+            : bySuccessRate;
+    return [...src].filter((r) => r?.jobId).reverse();
+  }, [jobTop10Tab, byRunCount, byFailCount, byAvgDurationMs, bySuccessRate]);
+
+  const execJobTop10Rows = useMemo(() => [...byMaxDurationMs].filter((r) => r?.jobId).reverse(), [byMaxDurationMs]);
 
   /**
    * 日历热力图：与 `trend` 同源；左侧月份、上侧星期、每月按周历排布；格内以「执行次数 / 失败次数 / 成功率」单行展示；格底色按当日成败语义（灰/绿/黄/红）。
@@ -1046,6 +1453,16 @@ export default function ScheduledTasksRunOverviewCharts({ charts, loading, heatm
       startYmd = endYmd;
       endYmd = x;
     }
+    /** 任务详情嵌入的热力图：数据已是父级时间窗内的历史事件，勿再与「相对当前时刻」预设求交，否则会与 chartRange 错位导致整图为空 */
+    const pick = heatmapOnly ? null : resolvePresetRangeMs(heatmapTimePreset, heatmapCustomStart, heatmapCustomEnd);
+    if (pick) {
+      const ps = msToLocalYmd(pick.startMs);
+      const pe = msToLocalYmd(pick.endMs);
+      if (ps && pe) {
+        if (ps > startYmd) startYmd = ps;
+        if (pe < endYmd) endYmd = pe;
+      }
+    }
 
     let maxTotal = 0;
     let maxFail = 0;
@@ -1074,7 +1491,7 @@ export default function ScheduledTasksRunOverviewCharts({ charts, loading, heatm
     if (!monthWeekBlocks.length) return null;
 
     return { monthWeekBlocks, weekdayShort, maxTotal, maxFail, startYmd, endYmd };
-  }, [trend, chartRange.startIso, chartRange.endIso]);
+  }, [trend, chartRange.startIso, chartRange.endIso, heatmapTimePreset, heatmapCustomStart, heatmapCustomEnd]);
 
   useLayoutEffect(() => {
     if (!dailyHeatmap) return;
@@ -1110,13 +1527,13 @@ export default function ScheduledTasksRunOverviewCharts({ charts, loading, heatm
     byFailCount.length > 0 ||
     byMaxDurationMs.length > 0 ||
     byAvgDurationMs.length > 0 ||
-    bySuccessRate.length > 0 ||
-    byTokenTotal.length > 0;
+    bySuccessRate.length > 0;
   const hasAnyChart =
     trendOption ||
+    dailyTokenTrendOption ||
     pieOption ||
+    tokenJobPieOption ||
     failureReasonPieOption ||
-    jobTop10BarOption ||
     hasJobTop10Any ||
     dailyHeatmap;
 
@@ -1132,50 +1549,6 @@ export default function ScheduledTasksRunOverviewCharts({ charts, loading, heatm
             <h3 className="min-w-0 shrink-0 text-sm font-semibold text-gray-900 dark:text-gray-100">
               {intl.get("scheduledTasks.runOverview.chartCalendarTitle")}
             </h3>
-            {dailyHeatmap ? (
-              <details className="relative shrink-0 [&_summary::-webkit-details-marker]:hidden">
-                <summary
-                  className="flex h-[28px] list-none cursor-pointer items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 shadow-sm hover:border-slate-300 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:bg-slate-800 sm:h-[30px] sm:text-xs"
-                  aria-label={intl.get("scheduledTasks.runOverview.chartCalendarDisplayMenuAria")}
-                >
-                  <Icon name="chevron" className="h-3.5 w-3.5 text-slate-500 opacity-90 dark:text-slate-400" />
-                  <span>{intl.get("scheduledTasks.runOverview.chartCalendarDisplayMenu")}</span>
-                </summary>
-                <div
-                  className="absolute left-0 top-[calc(100%+4px)] z-40 min-w-[13rem] rounded-lg border border-slate-200 bg-white py-2 shadow-lg dark:border-slate-600 dark:bg-gray-900"
-                  role="group"
-                  aria-label={intl.get("scheduledTasks.runOverview.chartCalendarDisplayMenuAria")}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  {(
-                    [
-                      ["dates", "scheduledTasks.runOverview.chartCalendarShowDates"],
-                      ["totalRuns", "scheduledTasks.runOverview.chartCalendarDisplayOptTotalRuns"],
-                      ["failures", "scheduledTasks.runOverview.chartCalendarDisplayOptFailures"],
-                      ["successRate", "scheduledTasks.runOverview.chartCalendarDisplayOptSuccessRate"],
-                    ]
-                  ).map(([key, labelKey]) => (
-                    <label
-                      key={key}
-                      className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-[11px] text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800 sm:text-xs"
-                    >
-                      <input
-                        type="checkbox"
-                        className="h-3.5 w-3.5 shrink-0 rounded border-slate-300 text-primary accent-primary focus:ring-primary/40 dark:border-slate-500 dark:bg-slate-900"
-                        checked={Boolean(heatmapDisplay[/** @type {"dates"|"totalRuns"|"failures"|"successRate"} */ (key)])}
-                        onChange={(e) =>
-                          setHeatmapDisplay((prev) => ({
-                            ...prev,
-                            [key]: e.target.checked,
-                          }))
-                        }
-                      />
-                      <span>{intl.get(labelKey)}</span>
-                    </label>
-                  ))}
-                </div>
-              </details>
-            ) : null}
           </div>
           {dailyHeatmap ? (
             <div
@@ -1183,6 +1556,89 @@ export default function ScheduledTasksRunOverviewCharts({ charts, loading, heatm
               role="group"
               aria-label={intl.get("scheduledTasks.runOverview.chartCalendarMetricPickerAria")}
             >
+              <div className="mr-1 flex items-center gap-1.5">
+                <span className="whitespace-nowrap text-[11px] font-medium text-slate-500 dark:text-slate-400 sm:text-xs">
+                  {intl.get("scheduledTasks.runOverview.chartCalendarDisplayMenu")}：
+                </span>
+                <div ref={heatmapDisplayMenuRef} className="relative shrink-0">
+                  <button
+                    type="button"
+                    aria-expanded={heatmapDisplayOpen}
+                    aria-haspopup="true"
+                    aria-label={intl.get("scheduledTasks.runOverview.chartCalendarDisplayMenuAria")}
+                    onClick={() => setHeatmapDisplayOpen((o) => !o)}
+                    className="flex h-[26px] w-full min-w-[7rem] cursor-pointer items-center justify-between gap-2 rounded-full border border-slate-200 bg-white px-2 py-0 text-[11px] font-medium text-slate-700 shadow-sm hover:border-slate-300 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:bg-slate-800/80 sm:h-[28px] sm:text-xs"
+                  >
+                    <span className="truncate">
+                      {heatmapDisplay.dates && heatmapDisplay.totalRuns && heatmapDisplay.failures && heatmapDisplay.successRate
+                        ? intl.get("common.all")
+                        : [
+                            heatmapDisplay.dates ? intl.get("scheduledTasks.runOverview.chartCalendarShowDates") : null,
+                            heatmapDisplay.totalRuns ? intl.get("scheduledTasks.runOverview.chartCalendarDisplayOptTotalRuns") : null,
+                            heatmapDisplay.failures ? intl.get("scheduledTasks.runOverview.chartCalendarDisplayOptFailures") : null,
+                            heatmapDisplay.successRate ? intl.get("scheduledTasks.runOverview.chartCalendarDisplayOptSuccessRate") : null,
+                          ]
+                            .filter(Boolean)
+                            .join(" / ") || intl.get("common.noData")}
+                    </span>
+                    <Icon
+                      name="chevron"
+                      className={`h-3.5 w-3.5 shrink-0 text-slate-500 opacity-90 transition-transform dark:text-slate-400 ${heatmapDisplayOpen ? "rotate-180" : ""}`}
+                    />
+                  </button>
+                  {heatmapDisplayOpen ? (
+                    <div
+                      className="absolute right-0 top-[calc(100%+4px)] z-40 min-w-[13rem] rounded-lg border border-slate-200 bg-white py-2 shadow-lg dark:border-slate-600 dark:bg-gray-900"
+                      role="group"
+                      aria-label={intl.get("scheduledTasks.runOverview.chartCalendarDisplayMenuAria")}
+                    >
+                      {(
+                        [
+                          ["dates", "scheduledTasks.runOverview.chartCalendarShowDates"],
+                          ["totalRuns", "scheduledTasks.runOverview.chartCalendarDisplayOptTotalRuns"],
+                          ["failures", "scheduledTasks.runOverview.chartCalendarDisplayOptFailures"],
+                          ["successRate", "scheduledTasks.runOverview.chartCalendarDisplayOptSuccessRate"],
+                        ]
+                      ).map(([key, labelKey]) => (
+                        <label
+                          key={key}
+                          className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-[11px] text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800 sm:text-xs"
+                        >
+                          <input
+                            type="checkbox"
+                            className="h-3.5 w-3.5 shrink-0 rounded border-slate-300 text-primary accent-primary focus:ring-primary/40 dark:border-slate-500 dark:bg-slate-900"
+                            checked={Boolean(heatmapDisplay[/** @type {"dates"|"totalRuns"|"failures"|"successRate"} */ (key)])}
+                            onChange={(e) =>
+                              setHeatmapDisplay((prev) => ({
+                                ...prev,
+                                [key]: e.target.checked,
+                              }))
+                            }
+                          />
+                          <span>{intl.get(labelKey)}</span>
+                        </label>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+              <div className="mr-1 flex items-center gap-1.5">
+                <span className="whitespace-nowrap text-[11px] font-medium text-slate-500 dark:text-slate-400 sm:text-xs">
+                  {intl.get("scheduledTasks.runOverview.chartCalendarRangeLabel")}
+                </span>
+                <div className="min-w-[7.5rem] max-w-[16rem] shrink-0 self-stretch sm:min-w-[9rem]">
+                  <LogTimeRangePicker
+                    timePreset={heatmapTimePreset}
+                    setTimePreset={setHeatmapTimePreset}
+                    customStart={heatmapCustomStart}
+                    setCustomStart={setHeatmapCustomStart}
+                    customEnd={heatmapCustomEnd}
+                    setCustomEnd={setHeatmapCustomEnd}
+                    onCommit={() => {}}
+                    relativePresetsMode="day"
+                  />
+                </div>
+              </div>
               {[
                 ["total", "scheduledTasks.runOverview.chartCalendarMetricTotal"],
                 ["failures", "scheduledTasks.runOverview.chartCalendarMetricFailures"],
@@ -1406,118 +1862,157 @@ export default function ScheduledTasksRunOverviewCharts({ charts, loading, heatm
 
   return (
     <div className={`space-y-4 ${loading ? "opacity-70" : ""}`}>
-      {heatmapCard}
-
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-4 lg:items-stretch">
-        <div className="min-w-0 rounded-xl border border-gray-100 bg-white p-3 shadow-sm dark:border-gray-800 dark:bg-gray-900 lg:col-span-3">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:items-stretch">
+        <div className="min-w-0 rounded-xl border border-gray-100 bg-white p-3 shadow-sm dark:border-gray-800 dark:bg-gray-900">
           <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{intl.get("scheduledTasks.runOverview.chartTrendTitle")}</h3>
           {trendOption ? (
             <div className="mt-2 w-full min-w-0">
               <ReactECharts
                 option={trendOption}
-                style={{ height: 300, width: "100%", minHeight: 300 }}
+                style={{ height: 240, width: "100%", minHeight: 240 }}
                 opts={{ renderer: "canvas" }}
                 notMerge
                 lazyUpdate
               />
             </div>
           ) : (
-            <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">{intl.get("scheduledTasks.runOverview.chartEmpty")}</p>
+            <div
+              className="mt-2 flex w-full min-w-0 items-center justify-center rounded-lg border border-dashed border-gray-100 bg-gray-50/50 dark:border-gray-800 dark:bg-gray-900/40"
+              style={{ minHeight: RUN_OVERVIEW_BAR_CHART_EMPTY_MIN_PX }}
+            >
+              <p className="px-3 text-center text-xs text-gray-400 dark:text-gray-500">
+                {intl.get("scheduledTasks.runOverview.chartEmpty")}
+              </p>
+            </div>
           )}
         </div>
-        <div className="min-w-0 rounded-xl border border-gray-100 bg-white p-3 shadow-sm dark:border-gray-800 dark:bg-gray-900 lg:col-span-1">
-          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{intl.get("scheduledTasks.runOverview.chartStatusPieTitle")}</h3>
-          {pieOption ? (
-            <ReactECharts option={pieOption} style={{ height: 300, width: "100%", minHeight: 280 }} notMerge lazyUpdate opts={{ renderer: "canvas" }} />
+        <div className="flex min-h-0 min-w-0 flex-col rounded-xl border border-gray-100 bg-white p-3 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+            {intl.get("scheduledTasks.runOverview.chartDailyTokenTrendTitle")}
+          </h3>
+          {dailyTokenTrendOption ? (
+            <div className="mt-2 min-h-0 w-full min-w-0 flex-1">
+              <ReactECharts option={dailyTokenTrendOption} style={{ height: 240, width: "100%", minHeight: 240 }} notMerge lazyUpdate opts={{ renderer: "canvas" }} />
+            </div>
           ) : (
-            <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">{intl.get("scheduledTasks.runOverview.chartEmpty")}</p>
+            <div
+              className="mt-2 flex w-full min-w-0 flex-1 items-center justify-center rounded-lg border border-dashed border-gray-100 bg-gray-50/50 dark:border-gray-800 dark:bg-gray-900/40"
+              style={{ minHeight: RUN_OVERVIEW_BAR_CHART_EMPTY_MIN_PX }}
+            >
+              <p className="px-3 text-center text-xs text-gray-400 dark:text-gray-500">
+                {intl.get("scheduledTasks.runOverview.chartEmpty")}
+              </p>
+            </div>
           )}
         </div>
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:items-stretch">
         <div className="min-w-0 rounded-xl border border-gray-100 bg-white p-3 shadow-sm dark:border-gray-800 dark:bg-gray-900">
-        <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-          {intl.get("scheduledTasks.runOverview.jobTop10AnalysisTitle")}
-        </h3>
-        <div
-          className="mt-2 flex w-full min-w-0 flex-nowrap items-stretch gap-1.5 overflow-x-auto overscroll-x-contain pb-0.5 [scrollbar-width:thin]"
-          role="tablist"
-          aria-label={intl.get("scheduledTasks.runOverview.jobTop10AnalysisTitle")}
-        >
-          {[
-            ["runCount", "scheduledTasks.runOverview.jobTop10Tab.runCount"],
-            ["failCount", "scheduledTasks.runOverview.jobTop10Tab.failCount"],
-            ["maxDur", "scheduledTasks.runOverview.jobTop10Tab.maxDur"],
-            ["avgDur", "scheduledTasks.runOverview.jobTop10Tab.avgDur"],
-            ["successRate", "scheduledTasks.runOverview.jobTop10Tab.successRate"],
-            ["tokenTotal", "scheduledTasks.runOverview.jobTop10Tab.tokenTotal"],
-          ].map(([key, labelKey]) => (
-            <button
-              key={key}
-              type="button"
-              role="tab"
-              aria-selected={jobTop10Tab === key}
-              className={[
-                "shrink-0 whitespace-nowrap rounded-lg border px-2 py-1.5 text-center text-xs font-medium transition",
-                jobTop10Tab === key
-                  ? "border-primary bg-primary/10 text-primary dark:border-primary/80 dark:bg-primary/15"
-                  : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-slate-500",
-              ].join(" ")}
-              onClick={() => setJobTop10Tab(key)}
-            >
-              {intl.get(labelKey)}
-            </button>
-          ))}
-        </div>
-        {jobTop10BarOption ? (
-          <div className="mt-3 w-full min-w-0">
-            <ReactECharts
-              option={jobTop10BarOption}
-              style={{
-                height: Math.max(
-                  220,
-                  (jobTop10Tab === "runCount"
-                    ? byRunCount
-                    : jobTop10Tab === "failCount"
-                      ? byFailCount
-                      : jobTop10Tab === "maxDur"
-                        ? byMaxDurationMs
-                        : jobTop10Tab === "avgDur"
-                          ? byAvgDurationMs
-                          : jobTop10Tab === "successRate"
-                            ? bySuccessRate
-                            : byTokenTotal
-                  ).length * 36,
-                ),
-                width: "100%",
-              }}
-              notMerge
-              lazyUpdate
-              opts={{ renderer: "canvas" }}
-            />
-          </div>
-        ) : (
-          <p className="mt-3 text-xs text-gray-400 dark:text-gray-500">{intl.get("scheduledTasks.runOverview.chartEmpty")}</p>
-        )}
-        </div>
-
-        <div className="flex min-h-0 min-w-0 flex-col rounded-xl border border-gray-100 bg-white p-3 shadow-sm dark:border-gray-800 dark:bg-gray-900">
           <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{intl.get("scheduledTasks.runOverview.chartFailureReasonPieTitle")}</h3>
           {failureReasonPieOption ? (
-            <div className="mt-2 min-h-0 flex-1">
-              <ReactECharts
-                option={failureReasonPieOption}
-                style={{ height: 300, width: "100%", minHeight: 260 }}
-                notMerge
-                lazyUpdate
-                opts={{ renderer: "canvas" }}
-              />
+            <div className="mt-2 min-h-0 w-full min-w-0">
+              <ReactECharts option={failureReasonPieOption} style={{ height: 300, width: "100%", minHeight: 280 }} notMerge lazyUpdate opts={{ renderer: "canvas" }} />
             </div>
           ) : (
-            <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">{intl.get("scheduledTasks.runOverview.chartEmpty")}</p>
+            <div
+              className="mt-2 flex w-full min-w-0 items-center justify-center rounded-lg border border-dashed border-gray-100 bg-gray-50/50 dark:border-gray-800 dark:bg-gray-900/40"
+              style={{ minHeight: RUN_OVERVIEW_PIE_CHART_EMPTY_MIN_PX }}
+            >
+              <p className="px-3 text-center text-xs text-gray-400 dark:text-gray-500">
+                {intl.get("scheduledTasks.runOverview.chartEmpty")}
+              </p>
+            </div>
           )}
         </div>
+        <div className="min-w-0 rounded-xl border border-gray-100 bg-white p-3 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{intl.get("scheduledTasks.runOverview.chartTokenDistPieTitle")}</h3>
+          {tokenJobPieOption ? (
+            <div className="mt-2 min-h-0 w-full min-w-0">
+              <ReactECharts option={tokenJobPieOption} style={{ height: 300, width: "100%", minHeight: 280 }} notMerge lazyUpdate opts={{ renderer: "canvas" }} />
+            </div>
+          ) : (
+            <div
+              className="mt-2 flex w-full min-w-0 items-center justify-center rounded-lg border border-dashed border-gray-100 bg-gray-50/50 dark:border-gray-800 dark:bg-gray-900/40"
+              style={{ minHeight: RUN_OVERVIEW_PIE_CHART_EMPTY_MIN_PX }}
+            >
+              <p className="px-3 text-center text-xs text-gray-400 dark:text-gray-500">
+                {intl.get("scheduledTasks.runOverview.chartEmpty")}
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="min-w-0">{heatmapCard}</div>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:items-stretch">
+        <div className="min-w-0 rounded-2xl border border-gray-100 bg-white p-4 shadow-sm ring-1 ring-black/[0.03] dark:border-gray-800 dark:bg-gray-900/60 dark:ring-white/[0.05]">
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+            {intl.get("scheduledTasks.runOverview.jobTop10AnalysisTitle")}
+          </h3>
+          <nav
+            className="mt-3 flex flex-wrap gap-1 border-b border-gray-100 dark:border-gray-800"
+            role="tablist"
+            aria-label={intl.get("scheduledTasks.runOverview.jobTop10AnalysisTitle")}
+          >
+            {[
+              ["runCount", "scheduledTasks.runOverview.jobTop10Tab.runCount"],
+              ["failCount", "scheduledTasks.runOverview.jobTop10Tab.failCount"],
+              ["avgDur", "scheduledTasks.runOverview.jobTop10Tab.avgDur"],
+              ["successRate", "scheduledTasks.runOverview.jobTop10Tab.successRate"],
+            ].map(([key, labelKey]) => (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                aria-selected={jobTop10Tab === key}
+                onClick={() => setJobTop10Tab(key)}
+                className={[
+                  "px-4 py-2.5 text-xs font-medium border-b-2 transition-colors -mb-px",
+                  jobTop10Tab === key
+                    ? "border-primary text-primary"
+                    : "border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300",
+                ].join(" ")}
+              >
+                {intl.get(labelKey)}
+              </button>
+            ))}
+          </nav>
+          <div className="mt-4 w-full min-w-0" role="tabpanel">
+            <JobTop10Table
+              tab={jobTop10Tab}
+              rows={jobTop10Rows}
+              maxRows={10}
+              showMetricProgressBars
+              hideJobIdColumn
+              showAgentColumn
+              rowDrillable={!heatmapOnly && typeof onOpenTaskDetail === "function"}
+              onJobRowClick={
+                !heatmapOnly && onOpenTaskDetail ? (row) => onOpenTaskDetail(String(row.jobId ?? "")) : undefined
+              }
+            />
+          </div>
+        </div>
+
+        <div className="min-w-0 rounded-2xl border border-gray-100 bg-white p-4 shadow-sm ring-1 ring-black/[0.03] dark:border-gray-800 dark:bg-gray-900/60 dark:ring-white/[0.05]">
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+            {intl.get("scheduledTasks.runOverview.execJobTop10AnalysisTitle")}
+          </h3>
+          <div className="mt-4 w-full min-w-0">
+            <JobTop10Table
+              tab="maxDur"
+              rows={execJobTop10Rows}
+              maxRows={10}
+              showExecTimeColumn
+              rowDrillable={!heatmapOnly && typeof onOpenExecutionForJob === "function"}
+              onJobRowClick={
+                !heatmapOnly && onOpenExecutionForJob ? (row) => onOpenExecutionForJob(String(row.jobId ?? "")) : undefined
+              }
+            />
+          </div>
+        </div>
+
       </div>
 
       {!hasAnyChart ? (

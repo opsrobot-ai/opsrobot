@@ -2,21 +2,19 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import intl from "react-intl-universal";
 import JobPerformancePanel from "../components/JobPerformancePanel.jsx";
 import JobRunResultsPanel from "../components/JobRunResultsPanel.jsx";
-import JobTokenChartsPanel from "../components/JobTokenChartsPanel.jsx";
-import JobTokenStatCards from "../components/JobTokenStatCards.jsx";
-import { aggregateTokenUsage, extractUsageTokens, formatTokenInt } from "../lib/jobTokenMetrics.js";
-import { isRunFailureStatus, isRunSuccessStatus } from "../lib/jobStabilityMetrics.js";
+import { extractUsageTokens, formatTokenInt } from "../lib/jobTokenMetrics.js";
+import { isRunFailureStatus } from "../lib/jobStabilityMetrics.js";
 import LoadingSpinner from "../components/LoadingSpinner.jsx";
 import SortableTableTh from "../components/SortableTableTh.jsx";
 import TablePagination, { DEFAULT_TABLE_PAGE_SIZE } from "../components/TablePagination.jsx";
 import CostTimeRangeFilter, { defaultRangeLastDays } from "../components/CostTimeRangeFilter.jsx";
 import TaskDetailRunEventsTimeRangeFilter from "../components/TaskDetailRunEventsTimeRangeFilter.jsx";
 import ScheduledTasksRunOverviewCharts from "../components/ScheduledTasksRunOverviewCharts.jsx";
-import { filterRunEventsByTimeRange, parseDateTimeLocalInput } from "../lib/runEventsTimeRange.js";
+import JobRunTraceTimeline from "../components/JobRunTraceTimeline.jsx";
+import JobRunTraceStatusTrendChart from "../components/JobRunTraceStatusTrendChart.jsx";
+import { filterRunEventsByTimeRange, parseDateTimeLocalInput, parseRunEventAnchorMs } from "../lib/runEventsTimeRange.js";
 import { useRunEventsTimeRangeFilter } from "../hooks/useRunEventsTimeRangeFilter.js";
-
-/** Token 消耗详情表默认每页条数 */
-const TOKEN_DETAIL_PAGE_SIZE = 10;
+import Icon from "../components/Icon.jsx";
 
 /** 任务详情列表每页条数 */
 const JOB_LIST_PAGE_SIZE = DEFAULT_TABLE_PAGE_SIZE;
@@ -30,27 +28,6 @@ const RUN_LOG_PAGE_SIZE = DEFAULT_TABLE_PAGE_SIZE;
 /** 运行记录 Tab（全局 cron_runs 列表）每页条数 */
 const RUN_RECORDS_PAGE_SIZE = 20;
 
-/**
- * @param {object} a
- * @param {object} b
- * @param {'in' | 'out'} column
- * @param {'asc' | 'desc'} dir
- */
-function compareEventsByTokenColumn(a, b, column, dir) {
-  const ta = extractUsageTokens(a);
-  const tb = extractUsageTokens(b);
-  const va = column === "in" ? ta.in : ta.out;
-  const vb = column === "in" ? tb.in : tb.out;
-  const asc = dir === "asc";
-  const na = va != null && Number.isFinite(va) ? va : asc ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY;
-  const nb = vb != null && Number.isFinite(vb) ? vb : asc ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY;
-  const delta = asc ? na - nb : nb - na;
-  if (delta !== 0) return delta;
-  const taMs = Number(a?.runAtMs ?? a?.ts ?? 0);
-  const tbMs = Number(b?.runAtMs ?? b?.ts ?? 0);
-  return tbMs - taMs;
-}
-
 const MAIN_TABS = [
   { key: "runOverview", labelKey: "scheduledTasks.tab.runOverview" },
   { key: "taskDetail", labelKey: "scheduledTasks.tab.taskDetail" },
@@ -60,10 +37,8 @@ const MAIN_TABS = [
 /** 选中任务后，右侧详情区内子 Tab */
 const JOB_DETAIL_SUB_TABS = [
   { key: "summary", labelKey: "scheduledTasks.taskDetail.subTab.summary" },
-  { key: "alerts", labelKey: "scheduledTasks.taskDetail.subTab.alerts" },
   { key: "results", labelKey: "scheduledTasks.taskDetail.subTab.results" },
-  { key: "performance", labelKey: "scheduledTasks.taskDetail.subTab.performance" },
-  { key: "tokens", labelKey: "scheduledTasks.taskDetail.subTab.tokens" },
+  { key: "trace", labelKey: "scheduledTasks.taskDetail.subTab.trace" },
   { key: "execution", labelKey: "scheduledTasks.taskDetail.subTab.execution" },
 ];
 
@@ -86,78 +61,19 @@ function cronOverviewRangeFromState(useCustomRange, rangeStartLocal, rangeEndLoc
   return cronOverviewRangeIso(activeDays);
 }
 
-/** @param {number} ms */
-function localDayKeyFromMs(ms) {
-  const d = new Date(Number(ms));
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-/**
- * 任务详情「任务概览」复用运行概览热力图所需的按日聚合结构。
- * @param {object[]} events
- */
-function buildTaskDetailDailyExecutionCharts(events) {
-  const list = Array.isArray(events) ? events : [];
-  /** @type {Map<string, { day: string, successCount: number, failureCount: number, totalCount: number, sumDurationMs: number, durationCount: number }>} */
-  const byDay = new Map();
-  let minMs = Number.POSITIVE_INFINITY;
-  let maxMs = Number.NEGATIVE_INFINITY;
-
-  for (const ev of list) {
-    const anchorMs = Number(ev?.runAtMs ?? ev?.ts);
-    if (!Number.isFinite(anchorMs)) continue;
-    minMs = Math.min(minMs, anchorMs);
-    maxMs = Math.max(maxMs, anchorMs);
-    const day = localDayKeyFromMs(anchorMs);
-    const bucket =
-      byDay.get(day) ?? {
-        day,
-        successCount: 0,
-        failureCount: 0,
-        totalCount: 0,
-        sumDurationMs: 0,
-        durationCount: 0,
-      };
-    bucket.totalCount += 1;
-    if (isRunSuccessStatus(ev?.status)) bucket.successCount += 1;
-    else if (isRunFailureStatus(ev?.status)) bucket.failureCount += 1;
-    const dur = Number(ev?.durationMs);
-    if (Number.isFinite(dur) && dur >= 0) {
-      bucket.sumDurationMs += dur;
-      bucket.durationCount += 1;
-    }
-    byDay.set(day, bucket);
-  }
-
-  if (!byDay.size || !Number.isFinite(minMs) || !Number.isFinite(maxMs)) return null;
-
-  const trend = [...byDay.values()]
-    .sort((a, b) => a.day.localeCompare(b.day))
-    .map((row) => ({
-      day: row.day,
-      successCount: row.successCount,
-      failureCount: row.failureCount,
-      totalCount: row.totalCount,
-      avgDurationMs: row.durationCount > 0 ? row.sumDurationMs / row.durationCount : null,
-    }));
-
-  return {
-    trend,
-    range: {
-      startIso: new Date(minMs).toISOString(),
-      endIso: new Date(maxMs).toISOString(),
-    },
-  };
-}
-
 /**
  * 运行概览指标卡片组：外框一张 + 标题 + 内嵌多列 KPI（与任务详情「运行性能」小卡风格一致）
- * @param {{ title: string, gridClass: string, items: { key: string, label: string, value: unknown, iconBox: string, Icon: (p: { className?: string }) => unknown }[] }} props
+ * @param {{ title: string, gridClass: string, items: { key: string, label: string, value: unknown, iconBox: string, Icon: (p: { className?: string }) => unknown }[], drillTab?: 'taskDetail' | 'executionDetail', onNavigateToTab?: (tab: string) => void }} props
  */
-function RunOverviewKpiGroup({ title, gridClass, items }) {
+function RunOverviewKpiGroup({ title, gridClass, items, drillTab, onNavigateToTab }) {
+  const canDrill = typeof onNavigateToTab === "function" && drillTab;
+  const drillAria =
+    drillTab === "taskDetail"
+      ? intl.get("scheduledTasks.runOverview.kpiDrillAriaTaskDetail")
+      : drillTab === "executionDetail"
+        ? intl.get("scheduledTasks.runOverview.kpiDrillAriaExecutionLog")
+        : "";
+
   return (
     <div className="h-full rounded-2xl border border-gray-100 bg-gradient-to-b from-white to-gray-50/60 p-4 shadow-sm ring-1 ring-black/[0.02] dark:border-gray-800 dark:from-gray-900 dark:to-gray-900/40 dark:ring-white/5">
       <div className="mb-3 flex items-center gap-2">
@@ -167,11 +83,8 @@ function RunOverviewKpiGroup({ title, gridClass, items }) {
       <div className={gridClass}>
         {items.map(({ key, label, value, iconBox, Icon }) => {
           const display = value === null || value === undefined ? "—" : String(value);
-          return (
-            <div
-              key={key}
-              className="group flex min-h-[72px] items-center gap-3 rounded-xl border border-gray-100/80 bg-white px-3 py-2.5 shadow-[0_1px_0_rgba(15,23,42,0.02)] transition-all duration-200 hover:-translate-y-px hover:border-primary/30 hover:shadow-md dark:border-gray-800 dark:bg-gray-900/70 dark:hover:border-primary/40 sm:min-h-0"
-            >
+          const body = (
+            <>
               <div
                 className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ring-1 ring-inset ring-black/5 transition-transform duration-200 group-hover:scale-[1.04] dark:ring-white/10 sm:h-12 sm:w-12 ${iconBox}`}
               >
@@ -183,6 +96,28 @@ function RunOverviewKpiGroup({ title, gridClass, items }) {
                   {display}
                 </p>
               </div>
+            </>
+          );
+          const cardClass =
+            "group flex min-h-[72px] w-full items-center gap-3 rounded-xl border border-gray-100/80 bg-white px-3 py-2.5 text-left shadow-[0_1px_0_rgba(15,23,42,0.02)] transition-all duration-200 hover:-translate-y-px hover:border-primary/30 hover:shadow-md dark:border-gray-800 dark:bg-gray-900/70 dark:hover:border-primary/40 sm:min-h-0";
+
+          if (canDrill) {
+            return (
+              <button
+                key={key}
+                type="button"
+                className={`${cardClass} cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40`}
+                onClick={() => onNavigateToTab(drillTab)}
+                aria-label={`${label} ${display}。${drillAria}`}
+              >
+                {body}
+              </button>
+            );
+          }
+
+          return (
+            <div key={key} className={cardClass}>
+              {body}
             </div>
           );
         })}
@@ -252,8 +187,8 @@ function IconOvAlertRange(props) {
   );
 }
 
-/** 定时任务「运行概览」：时间筛选 + 任务状态 / 执行概况与任务概况 KPI 卡片 */
-function ScheduledTasksRunOverview() {
+/** 定时任务「运行概览」：时间筛选 + 任务状态 / 作业概况与任务概况 KPI 卡片 */
+function ScheduledTasksRunOverview({ onNavigateToTab, onOpenTaskDetailFromOverview, onOpenExecutionForJobFromOverview }) {
   const [activeDays, setActiveDays] = useState(7);
   const initRange = useMemo(() => defaultRangeLastDays(7), []);
   const [rangeStartLocal, setRangeStartLocal] = useState(initRange.start);
@@ -487,6 +422,8 @@ function ScheduledTasksRunOverview() {
                 title={intl.get("scheduledTasks.runOverview.cardAlertsTitle")}
                 gridClass="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-3"
                 items={runOverviewAlertItems}
+                drillTab="taskDetail"
+                onNavigateToTab={onNavigateToTab}
               />
             </div>
             <div className="min-w-0">
@@ -494,10 +431,19 @@ function ScheduledTasksRunOverview() {
                 title={intl.get("scheduledTasks.runOverview.groupExecutionTitle")}
                 gridClass="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4"
                 items={runOverviewExecutionItems}
+                drillTab="executionDetail"
+                onNavigateToTab={onNavigateToTab}
               />
             </div>
           </div>
-          {!errorCharts ? <ScheduledTasksRunOverviewCharts charts={charts} loading={loadingCharts} /> : null}
+          {!errorCharts ? (
+            <ScheduledTasksRunOverviewCharts
+              charts={charts}
+              loading={loadingCharts}
+              onOpenTaskDetail={onOpenTaskDetailFromOverview}
+              onOpenExecutionForJob={onOpenExecutionForJobFromOverview}
+            />
+          ) : null}
         </div>
       )}
     </div>
@@ -550,6 +496,57 @@ function runLogRowAgentId(ev, job) {
   return "";
 }
 
+/**
+ * 列表「Agent」列展示：与当前任务 agentId 一致时优先 `agentName`，否则回退为 ID（不再单独占一列 AgentID）。
+ * @param {object | null | undefined} ev
+ * @param {object | null | undefined} job
+ */
+function runLogRowAgentDisplay(ev, job) {
+  const id = runLogRowAgentId(ev, job);
+  if (!id) return { label: "", id: "", titleTip: "" };
+  const nameFromJob =
+    job?.agentId != null &&
+    String(job.agentId).trim() === id &&
+    job?.agentName != null &&
+    String(job.agentName).trim() !== ""
+      ? String(job.agentName).trim()
+      : null;
+  const label = nameFromJob ?? id;
+  const titleTip = nameFromJob ? id : "";
+  return { label, id, titleTip };
+}
+
+/** @param {unknown} v */
+function formatJobPayloadTextValue(v) {
+  if (v == null) return "";
+  if (typeof v === "string") {
+    const t = v.trim();
+    return t;
+  }
+  if (typeof v === "object") {
+    try {
+      return JSON.stringify(v, null, 2);
+    } catch {
+      return String(v);
+    }
+  }
+  return String(v).trim();
+}
+
+/**
+ * 任务负载中的正文（与 jobs.json / cron_jobs `payload.message|body|text|prompt` 对齐）。
+ * @param {object | null | undefined} job
+ */
+function jobPayloadTaskContent(job) {
+  const p = job?.payload;
+  if (!p || typeof p !== "object") return "";
+  for (const k of ["message", "body", "text", "prompt"]) {
+    const s = formatJobPayloadTextValue(/** @type {Record<string, unknown>} */ (p)[k]);
+    if (s !== "") return s;
+  }
+  return "";
+}
+
 /** 运行日志会话 ID → 侧边栏「会话链路溯源」：预填搜索并可选直达详情（与 SessionAudit 约定一致） */
 function navigateRunLogSessionToSessionAudit(sessionId) {
   const sid = sessionId != null ? String(sessionId).trim() : "";
@@ -597,263 +594,127 @@ function statusClass(status) {
   return "bg-gray-50 text-gray-700 ring-gray-500/15 dark:bg-gray-800 dark:text-gray-300 dark:ring-gray-600/30";
 }
 
-/** 按运行锚点升序（用于连续失败段） */
-function sortRunEventsAsc(evts) {
-  return [...evts].sort((a, b) => {
-    const ta = Number(a?.runAtMs ?? a?.ts ?? 0);
-    const tb = Number(b?.runAtMs ?? b?.ts ?? 0);
-    return ta - tb;
-  });
-}
-
-/** 按运行锚点降序 */
-function sortRunEventsDesc(evts) {
-  return [...evts].sort((a, b) => {
-    const ta = Number(a?.runAtMs ?? a?.ts ?? 0);
-    const tb = Number(b?.runAtMs ?? b?.ts ?? 0);
-    return tb - ta;
-  });
-}
-
-function maxConsecutiveFailureStreakInEvents(evts) {
-  const sorted = sortRunEventsAsc(evts);
-  let max = 0;
-  let cur = 0;
-  for (const e of sorted) {
-    if (isRunFailureStatus(e?.status)) {
-      cur += 1;
-      if (cur > max) max = cur;
-    } else {
-      cur = 0;
-    }
-  }
-  return max;
-}
-
-/** @param {object | null | undefined} ev */
-function effectiveDurationMsFromRunEvent(ev) {
-  const d = Number(ev?.durationMs);
-  if (Number.isFinite(d) && d >= 0) return d;
-  return null;
-}
-
-/**
- * 按 runAtMs（缺省回 ts）从新到旧，从首条开始连续失败次数（与稳定性面板「从新往旧数」一致）
- * @param {object[]} evs
- */
-function consecutiveFailuresFromNewestByAnchor(evs) {
-  const list = Array.isArray(evs) ? evs : [];
-  const sorted = [...list].sort((a, b) => {
-    const ta = Number(a?.runAtMs ?? a?.ts ?? 0);
-    const tb = Number(b?.runAtMs ?? b?.ts ?? 0);
-    return tb - ta;
-  });
-  let n = 0;
-  for (const e of sorted) {
-    if (isRunFailureStatus(e?.status)) n += 1;
-    else break;
-  }
-  return n;
-}
-
-/**
- * 任务详情「异常告警」：任务表快照 + 已加载 run-events 样本的规则推断
- * @param {{ job: object, events: object[], loadingEvents: boolean }} p
- * @returns {{ severity: 'high' | 'medium' | 'low', code: string, params?: Record<string, unknown> }[]}
- */
-function computeTaskDetailAlerts({ job, events, loadingEvents }) {
-  if (!job) return [];
-  /** @type {{ severity: 'high' | 'medium' | 'low', code: string, params?: Record<string, unknown> }[]} */
-  const out = [];
-  const push = (severity, code, params) => out.push({ severity, code, params });
-
-  if (job.enabled === false) push("medium", "JOB_DISABLED");
-
-  const agentId = job.agentId != null ? String(job.agentId).trim() : "";
-  if (!agentId) push("high", "NO_AGENT");
-
-  const mode = job.delivery?.mode != null ? String(job.delivery.mode).trim() : "";
-  if (!mode) push("medium", "NO_DELIVERY_CHANNEL");
-
-  const ce = job.state?.consecutiveErrors;
-  if (ce != null && Number.isFinite(Number(ce)) && Number(ce) >= 2) {
-    push("high", "SNAPSHOT_CONSECUTIVE_ERRORS", { n: Math.floor(Number(ce)) });
-  }
-
-  const lastSt = job.state?.lastRunStatus != null ? String(job.state.lastRunStatus) : "";
-  if (lastSt && isRunFailureStatus(lastSt)) {
-    const rawErr = job.state?.lastError;
-    const preview =
-      rawErr != null && String(rawErr).trim() !== "" ? truncateText(String(rawErr), 140) : "";
-    push("high", "LAST_RUN_FAILED", { status: lastSt, preview });
-  }
-
-  const evs = Array.isArray(events) ? events : [];
-  if (!loadingEvents && evs.length === 0 && job.enabled !== false) {
-    push("low", "NO_RUN_EVENTS_SAMPLE");
-  }
-
-  let ok = 0;
-  let bad = 0;
-  let neutral = 0;
-  for (const e of evs) {
-    if (isRunSuccessStatus(e?.status)) ok += 1;
-    else if (isRunFailureStatus(e?.status)) bad += 1;
-    else neutral += 1;
-  }
-  const denomAll = ok + bad + neutral;
-  const denomTerminal = ok + bad;
-
-  if (denomAll >= 15) {
-    const neutralPct = Math.round((neutral / denomAll) * 1000) / 10;
-    if (neutralPct >= 34) push("medium", "HIGH_NEUTRAL_OR_UNKNOWN_STATUS", { pct: neutralPct });
-  }
-
-  if (denomTerminal >= 12) {
-    const succRate = Math.round((ok / denomTerminal) * 1000) / 10;
-    if (succRate < 72) push("medium", "LOW_SUCCESS_RATE_IN_SAMPLE", { ratePct: succRate });
-    const failRate = Math.round((bad / denomTerminal) * 1000) / 10;
-    if (failRate >= 28 && bad >= 5) push("high", "HIGH_FAIL_RATE_IN_SAMPLE", { ratePct: failRate });
-  }
-
-  if (agentId && evs.length >= 10) {
-    let missingAgent = 0;
-    for (const e of evs) {
-      if (runLogRowAgentId(e, job) === "") missingAgent += 1;
-    }
-    if (missingAgent >= Math.max(4, Math.ceil(evs.length * 0.22))) {
-      push("low", "EVENT_ROWS_MISSING_AGENT", { count: missingAgent, total: evs.length });
-    }
-  }
-
-  if (!loadingEvents && evs.length >= 1) {
-    const newest = sortRunEventsDesc(evs)[0];
-    const ns = newest?.status;
-    if (isRunFailureStatus(ns)) {
-      const rawErr = newest?.error;
-      const preview =
-        rawErr != null && String(rawErr).trim() !== "" ? truncateText(String(rawErr), 200) : "";
-      push("high", "SAMPLE_NEWEST_RUN_FAILED", { status: String(ns ?? "—"), preview });
-    }
-
-    if (lastSt) {
-      const newestClass = isRunSuccessStatus(ns) ? "ok" : isRunFailureStatus(ns) ? "fail" : "";
-      if (newestClass === "ok" && isRunFailureStatus(lastSt)) {
-        push("medium", "TABLE_FAIL_BUT_NEWEST_OK_IN_SAMPLE");
-      } else if (newestClass === "fail" && isRunSuccessStatus(lastSt)) {
-        push("high", "TABLE_OK_BUT_NEWEST_FAIL_IN_SAMPLE");
-      }
-    }
-
-    const headStreak = consecutiveFailuresFromNewestByAnchor(evs);
-    if (headStreak >= 3) push("high", "NEWEST_CONSECUTIVE_FAILURES", { streak: headStreak });
-  }
-
-  if (evs.length >= 15) {
-    let noDur = 0;
-    for (const e of evs) {
-      if (effectiveDurationMsFromRunEvent(e) == null) noDur += 1;
-    }
-    const ndPct = Math.round((noDur / evs.length) * 1000) / 10;
-    if (ndPct >= 44) push("low", "MANY_RUNS_MISSING_DURATION", { pct: ndPct });
-  }
-
-  const tokAgg = aggregateTokenUsage(evs);
-  if (tokAgg.rowsWithUsage >= 6 && tokAgg.sumTotal >= 400_000) {
-    push("medium", "HIGH_TOKEN_VOLUME_IN_SAMPLE", { total: Math.floor(tokAgg.sumTotal), rows: tokAgg.rowsWithUsage });
-  }
-
-  if (evs.length >= 12) {
-    const windowSize = 12;
-    const tail = sortRunEventsDesc(evs).slice(0, windowSize);
-    const failInTail = tail.filter((e) => isRunFailureStatus(e?.status)).length;
-    if (failInTail >= 5) push("high", "RECENT_FAIL_BURST", { failCount: failInTail, windowSize });
-
-    const streak = maxConsecutiveFailureStreakInEvents(evs);
-    if (streak >= 3) push("high", "FAIL_STREAK_IN_EVENTS", { streak });
-  }
-
-  if (evs.length >= 15) {
-    let stall = 0;
-    for (const e of evs) {
-      const ds = String(e?.deliveryStatus ?? "")
-        .trim()
-        .toLowerCase();
-      if (ds === "pending" || ds === "queued" || ds === "skipped") stall += 1;
-    }
-    const stallPct = Math.round((stall / evs.length) * 1000) / 10;
-    if (stallPct >= 38) push("medium", "DELIVERY_STALL_HEAVY", { pct: stallPct });
-  }
-
-  if (evs.length >= 12) {
-    let slow = 0;
-    for (const e of evs) {
-      const d = effectiveDurationMsFromRunEvent(e);
-      if (d != null && d >= 30000) slow += 1;
-    }
-    if (slow >= 5) push("medium", "MANY_SLOW_RUNS", { count: slow });
-  }
-
-  const sevOrder = (s) => ({ high: 0, medium: 1, low: 2 }[s] ?? 3);
-  out.sort((a, b) => sevOrder(a.severity) - sevOrder(b.severity) || String(a.code).localeCompare(String(b.code)));
-  return out;
-}
-
-/** @param {{ severity: string, code: string, params?: Record<string, unknown> }} row */
-function formatTaskDetailAlertMessage(row) {
-  const code = row.code != null ? String(row.code) : "";
-  const p = row.params && typeof row.params === "object" ? row.params : {};
-  const key = `scheduledTasks.taskDetail.alerts.code.${code}`;
-  try {
-    switch (code) {
-      case "LAST_RUN_FAILED":
-        return intl.get(key, { status: p.status ?? "—" });
-      case "SNAPSHOT_CONSECUTIVE_ERRORS":
-        return intl.get(key, { n: p.n ?? 0 });
-      case "RECENT_FAIL_BURST":
-        return intl.get(key, { failCount: p.failCount ?? 0, windowSize: p.windowSize ?? 12 });
-      case "FAIL_STREAK_IN_EVENTS":
-        return intl.get(key, { streak: p.streak ?? 0 });
-      case "DELIVERY_STALL_HEAVY":
-        return intl.get(key, { pct: p.pct ?? 0 });
-      case "MANY_SLOW_RUNS":
-        return intl.get(key, { count: p.count ?? 0 });
-      case "SAMPLE_NEWEST_RUN_FAILED":
-        return intl.get(key, { status: p.status ?? "—" });
-      case "LOW_SUCCESS_RATE_IN_SAMPLE":
-        return intl.get(key, { ratePct: p.ratePct ?? 0 });
-      case "HIGH_FAIL_RATE_IN_SAMPLE":
-        return intl.get(key, { ratePct: p.ratePct ?? 0 });
-      case "HIGH_NEUTRAL_OR_UNKNOWN_STATUS":
-        return intl.get(key, { pct: p.pct ?? 0 });
-      case "EVENT_ROWS_MISSING_AGENT":
-        return intl.get(key, { count: p.count ?? 0, total: p.total ?? 0 });
-      case "NEWEST_CONSECUTIVE_FAILURES":
-        return intl.get(key, { streak: p.streak ?? 0 });
-      case "MANY_RUNS_MISSING_DURATION":
-        return intl.get(key, { pct: p.pct ?? 0 });
-      case "HIGH_TOKEN_VOLUME_IN_SAMPLE":
-        return intl.get(key, { total: p.total ?? 0, rows: p.rows ?? 0 });
-      case "TABLE_FAIL_BUT_NEWEST_OK_IN_SAMPLE":
-        return intl.get(key);
-      case "TABLE_OK_BUT_NEWEST_FAIL_IN_SAMPLE":
-        return intl.get(key);
-      default:
-        return intl.get(key);
-    }
-  } catch {
-    return intl.get("scheduledTasks.taskDetail.alerts.codeUnknown", { code: code || "—" });
-  }
-}
-
 /** @param {object | null | undefined} a @param {object | null | undefined} b */
 function sameRunLogEvent(a, b) {
   if (!a || !b) return false;
+  const aR = a.runId != null ? String(a.runId).trim() : "";
+  const bR = b.runId != null ? String(b.runId).trim() : "";
+  if (aR !== "" && bR !== "") return aR === bR;
   return (
     Number(a.ts) === Number(b.ts) &&
     Number(a.runAtMs ?? 0) === Number(b.runAtMs ?? 0) &&
     String(a.sessionId ?? "") === String(b.sessionId ?? "")
   );
+}
+
+/** log_attributes 下次运行时间：毫秒数字串、秒级时间戳或 ISO（与后端 parseNextRunAtMsFromLogRaw 一致） */
+function parseNextRunAtMsFromExecutionRowRaw(v) {
+  if (v == null) return null;
+  const s = String(v).trim();
+  if (!s) return null;
+  if (/^\d+$/.test(s)) {
+    const n = Number(s);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    if (n >= 1e11) return Math.floor(n);
+    if (n >= 1e9) return Math.floor(n * 1000);
+    return null;
+  }
+  const d = Date.parse(s);
+  return Number.isFinite(d) ? d : null;
+}
+
+/**
+ * `/api/cron-runs` 列表行 → RunLogDrillPanel 所需 event（与 mapCronRunPageRowToJsonlEvent 字段对齐）
+ * @param {object} r
+ */
+function executionRunRowToRunLogDrillEvent(r) {
+  const pick = (...parts) => {
+    for (const p of parts) {
+      if (p == null) continue;
+      const s = String(p).trim();
+      if (s) return s;
+    }
+    return null;
+  };
+  const parsePos = (v) => {
+    if (v == null) return null;
+    if (typeof v === "bigint") {
+      const bn = Number(v);
+      if (!Number.isFinite(bn) || bn < 0) return null;
+      return Math.floor(bn);
+    }
+    if (typeof v === "number" && Number.isFinite(v) && v >= 0) return Math.floor(v);
+    const n = Number(String(v).trim());
+    if (!Number.isFinite(n) || n < 0) return null;
+    return Math.floor(n);
+  };
+
+  const startedMs = r?.startedAt != null ? Date.parse(String(r.startedAt)) : NaN;
+  const finishedMs = r?.finishedAt != null ? Date.parse(String(r.finishedAt)) : NaN;
+  const ts = Number.isFinite(finishedMs) ? finishedMs : Number.isFinite(startedMs) ? startedMs : Date.now();
+  const runAtMs = Number.isFinite(startedMs) ? startedMs : Number.isFinite(finishedMs) ? finishedMs : ts;
+
+  const wallDur =
+    r?.durationMs != null && Number.isFinite(Number(r.durationMs)) && Number(r.durationMs) >= 0
+      ? Math.floor(Number(r.durationMs))
+      : null;
+  const logDur = parsePos(r?.run_duration_ms_raw);
+  const durationMs = logDur != null ? logDur : wallDur;
+
+  const sessionId = pick(r?.run_log_session_id_raw, r?.jobSessionId);
+  const errLog = pick(r?.run_log_error_raw);
+  const errCol = r?.errorMessage != null ? String(r.errorMessage).trim() : "";
+  const error = errLog ?? errCol ?? "";
+
+  const summary = pick(r?.run_log_summary_raw);
+
+  const inn = parsePos(r?.run_usage_in_raw ?? r?.RUN_USAGE_IN_RAW);
+  const outt = parsePos(r?.run_usage_out_raw ?? r?.RUN_USAGE_OUT_RAW);
+  const tot = parsePos(r?.run_usage_total_raw ?? r?.RUN_USAGE_TOTAL_RAW);
+  let usage = null;
+  if (inn != null || outt != null || tot != null) {
+    usage = {};
+    if (inn != null) usage.input_tokens = inn;
+    if (outt != null) usage.output_tokens = outt;
+    if (tot != null) usage.total_tokens = tot;
+  }
+  if (usage == null && r?.usage != null && typeof r.usage === "object") {
+    const u = /** @type {Record<string, unknown>} */ (r.usage);
+    const i2 = parsePos(u.input_tokens ?? u.prompt_tokens ?? u.inputTokens);
+    const o2 = parsePos(u.output_tokens ?? u.completion_tokens ?? u.outputTokens);
+    const t2 = parsePos(u.total_tokens ?? u.totalTokens);
+    if (i2 != null || o2 != null || t2 != null) {
+      usage = {};
+      if (i2 != null) usage.input_tokens = i2;
+      if (o2 != null) usage.output_tokens = o2;
+      if (t2 != null) usage.total_tokens = t2;
+    }
+  }
+
+  const model = pick(r?.run_log_model_raw, r?.model);
+  const provider = pick(r?.run_log_provider_raw, r?.provider);
+  const deliveryStatus = pick(r?.deliveryStatus) ?? "unknown";
+  const nextRunAtMs = parseNextRunAtMsFromExecutionRowRaw(r?.run_log_next_run_raw);
+
+  return {
+    ts,
+    runAtMs,
+    jobId: r?.jobId != null ? String(r.jobId) : null,
+    runId: r?.runId != null ? String(r.runId) : null,
+    action: "finished",
+    status: r?.status != null ? String(r.status) : null,
+    error: error || "",
+    deliveryStatus,
+    durationMs,
+    nextRunAtMs,
+    summary: summary ?? null,
+    sessionId,
+    sessionKey: null,
+    agentId: r?.agentId != null && String(r.agentId).trim() !== "" ? String(r.agentId).trim() : null,
+    model,
+    provider,
+    usage,
+  };
 }
 
 const RUN_LOG_DRILL_TABS = [
@@ -864,17 +725,15 @@ const RUN_LOG_DRILL_TABS = [
 
 /**
  * 运行日志：点击行后的下钻面板（事件字段 / 产出摘要 / 完整 JSON）
- * @param {{ event: object, job: object | null, onClose: () => void }} props
+ * @param {{ event: object, job: object | null, onClose: () => void, onNavigateToTaskDetail?: (jobId: string) => void }} props
  */
-function RunLogDrillPanel({ event, job = null, onClose }) {
+function RunLogDrillPanel({ event, job = null, onClose, onNavigateToTaskDetail }) {
   const [drillTab, setDrillTab] = useState(/** @type {"fields" | "summary" | "json"} */ ("fields"));
 
   useEffect(() => {
     setDrillTab("fields");
-  }, [event?.ts, event?.runAtMs, event?.sessionId]);
+  }, [event?.ts, event?.runAtMs, event?.sessionId, event?.runId]);
 
-  const u = extractUsageTokens(event);
-  const fmtTok = (n) => (n != null && Number.isFinite(n) ? formatTokenInt(n) : "—");
   let rawJson = "";
   try {
     rawJson = JSON.stringify(event, null, 2);
@@ -885,6 +744,8 @@ function RunLogDrillPanel({ event, job = null, onClose }) {
   const textOrDash = (v) => (v == null || v === "" ? "—" : String(v));
   const drillAgentId = runLogRowAgentId(event, job);
   const summaryText = event?.summary != null && String(event.summary).trim() !== "" ? String(event.summary) : "";
+  const drillJobIdStr = event?.jobId != null ? String(event.jobId).trim() : "";
+  const sameTaskAsContextJob = job?.id != null && drillJobIdStr !== "" && String(job.id) === drillJobIdStr;
 
   return (
     <div
@@ -921,6 +782,14 @@ function RunLogDrillPanel({ event, job = null, onClose }) {
         {drillTab === "fields" && (
           <div className="space-y-3">
             <dl className="rounded-md border border-gray-100 bg-white/90 px-3 py-1 dark:border-gray-800 dark:bg-gray-900/70">
+              {event.runId != null && String(event.runId).trim() !== "" ? (
+                <div className="flex flex-col gap-0.5 border-b border-gray-100 py-2.5 dark:border-gray-800/80 sm:flex-row sm:items-start">
+                  <dt className="shrink-0 text-xs font-medium text-gray-500 dark:text-gray-400 sm:w-36">
+                    {intl.get("scheduledTasks.execution.colRunId")}
+                  </dt>
+                  <dd className="min-w-0 break-all font-mono text-xs text-gray-900 dark:text-gray-100">{String(event.runId)}</dd>
+                </div>
+              ) : null}
               <div className="flex flex-col gap-0.5 border-b border-gray-100 py-2.5 dark:border-gray-800/80 sm:flex-row sm:items-start">
                 <dt className="shrink-0 text-xs font-medium text-gray-500 dark:text-gray-400 sm:w-36">{intl.get("scheduledTasks.taskDetail.colEventTs")}</dt>
                 <dd className="min-w-0 text-sm text-gray-900 dark:text-gray-100">{formatEpochMs(event.ts)}</dd>
@@ -1007,32 +876,31 @@ function RunLogDrillPanel({ event, job = null, onClose }) {
               </div>
               <div className="flex flex-col gap-0.5 border-b border-gray-100 py-2.5 dark:border-gray-800/80 sm:flex-row sm:items-start">
                 <dt className="shrink-0 text-xs font-medium text-gray-500 dark:text-gray-400 sm:w-36">{intl.get("scheduledTasks.taskDetail.runLog.drillJobId")}</dt>
-                <dd className="min-w-0 break-all font-mono text-xs text-gray-900 dark:text-gray-100">{textOrDash(event.jobId)}</dd>
+                <dd className="min-w-0 break-all font-mono text-xs text-gray-900 dark:text-gray-100">
+                  {drillJobIdStr !== "" ? (
+                    <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className="min-w-0 break-all">{drillJobIdStr}</span>
+                      {typeof onNavigateToTaskDetail === "function" && !sameTaskAsContextJob && (
+                        <button
+                          type="button"
+                          className="shrink-0 rounded-md px-2 py-0.5 text-xs font-medium text-primary ring-1 ring-inset ring-primary/25 transition-colors hover:bg-primary/10"
+                          title={intl.get("scheduledTasks.taskDetail.runLog.jobIdOpenTaskDetailTitle")}
+                          onClick={() => onNavigateToTaskDetail(drillJobIdStr)}
+                        >
+                          {intl.get("scheduledTasks.taskDetail.runLog.jobIdOpenTaskDetail")}
+                        </button>
+                      )}
+                    </span>
+                  ) : (
+                    "—"
+                  )}
+                </dd>
               </div>
               <div className="flex flex-col gap-0.5 py-2.5 sm:flex-row sm:items-start">
                 <dt className="shrink-0 text-xs font-medium text-gray-500 dark:text-gray-400 sm:w-36">{intl.get("scheduledTasks.taskDetail.colError")}</dt>
                 <dd className="min-w-0 whitespace-pre-wrap break-words text-sm text-gray-900 dark:text-gray-100">{event.error != null ? String(event.error) : "—"}</dd>
               </div>
             </dl>
-            {(u.in != null || u.out != null || u.total != null) && (
-              <div className="rounded-md border border-gray-100 bg-white/90 px-3 py-2 dark:border-gray-800 dark:bg-gray-900/70">
-                <p className="text-xs font-medium text-gray-600 dark:text-gray-400">{intl.get("scheduledTasks.taskDetail.runLog.drillTokenUsage")}</p>
-                <div className="mt-1.5 flex flex-wrap gap-x-6 gap-y-1 text-sm text-gray-900 dark:text-gray-100">
-                  <span>
-                    <span className="text-gray-500 dark:text-gray-400">{intl.get("scheduledTasks.taskDetail.colTokenIn")}: </span>
-                    {fmtTok(u.in)}
-                  </span>
-                  <span>
-                    <span className="text-gray-500 dark:text-gray-400">{intl.get("scheduledTasks.taskDetail.colTokenOut")}: </span>
-                    {fmtTok(u.out)}
-                  </span>
-                  <span>
-                    <span className="text-gray-500 dark:text-gray-400">{intl.get("scheduledTasks.taskDetail.colTokenTotal")}: </span>
-                    {fmtTok(u.total)}
-                  </span>
-                </div>
-              </div>
-            )}
           </div>
         )}
 
@@ -1166,14 +1034,10 @@ function compareScheduledTaskListJobs(a, b, key, intl) {
       return (numSortableMs(sa?.avgDurationMs) ?? -Infinity) - (numSortableMs(sb?.avgDurationMs) ?? -Infinity);
     case "maxDur":
       return (numSortableMs(sa?.maxDurationMs) ?? -Infinity) - (numSortableMs(sb?.maxDurationMs) ?? -Infinity);
-    case "totalTokens":
-      return (numSortableMs(sa?.totalTokensSum) ?? -Infinity) - (numSortableMs(sb?.totalTokensSum) ?? -Infinity);
     case "lastRunAt":
       return (numSortableMs(a.state?.lastRunAtMs) ?? -Infinity) - (numSortableMs(b.state?.lastRunAtMs) ?? -Infinity);
     case "lastDur":
       return (numSortableMs(a.state?.lastDurationMs) ?? -Infinity) - (numSortableMs(b.state?.lastDurationMs) ?? -Infinity);
-    case "lastTokens":
-      return (numSortableMs(sa?.lastRunTokensTotal) ?? -Infinity) - (numSortableMs(sb?.lastRunTokensTotal) ?? -Infinity);
     case "lastSuccessAt":
       return (numSortableMs(sa?.lastSuccessAtMs) ?? -Infinity) - (numSortableMs(sb?.lastSuccessAtMs) ?? -Infinity);
     case "enabled":
@@ -1254,7 +1118,7 @@ function IconRefresh(props) {
   );
 }
 
-function TaskDetailPanel() {
+function TaskDetailPanel({ runOverviewPickJobId, onRunOverviewPickConsumed }) {
   const [jobs, setJobs] = useState([]);
   const [selectedJobId, setSelectedJobId] = useState("");
   const [events, setEvents] = useState([]);
@@ -1272,10 +1136,7 @@ function TaskDetailPanel() {
   /** 运行日志：当前下钻选中的事件 */
   const [runLogDrillEvent, setRunLogDrillEvent] = useState(/** @type {object | null} */ (null));
   const runLogDrillRef = useRef(null);
-  const [tokenListPage, setTokenListPage] = useState(1);
-  const [tokenSortColumn, setTokenSortColumn] = useState(/** @type {null | 'in' | 'out'} */ (null));
-  const [tokenSortDir, setTokenSortDir] = useState(/** @type {'asc' | 'desc'} */ ("desc"));
-  /** 任务详情：运行日志 / 运行结果 / 运行性能 / Token 成本 共用时间窗（见 `TaskDetailRunEventsTimeRangeFilter` + `useRunEventsTimeRangeFilter`） */
+  /** 任务详情：运行日志 / 运行结果 / 运行追溯 等共用「统计时间」窗口（见 `TaskDetailRunEventsTimeRangeFilter`） */
   const {
     activeDays: tokenTimeActiveDays,
     activePresetHours: tokenTimeActiveHours,
@@ -1284,7 +1145,6 @@ function TaskDetailPanel() {
     highlightPresets: tokenTimeHighlightPresets,
     onPreset: handleTokenTimePreset,
     onRangeLocalChange: handleTokenTimeRangeLocalChange,
-    setByBrushInclusiveDays: handleTokenTimeBrushFromChart,
     resetToDefault: resetTokenTimeRunEventsRange,
   } = useRunEventsTimeRangeFilter();
   const [jobListPage, setJobListPage] = useState(1);
@@ -1323,6 +1183,14 @@ function TaskDetailPanel() {
     loadJobs();
   }, [loadJobs]);
 
+  useEffect(() => {
+    if (runOverviewPickJobId == null || String(runOverviewPickJobId).trim() === "") return;
+    if (loadingJobs) return;
+    const id = String(runOverviewPickJobId).trim();
+    setSelectedJobId(id);
+    onRunOverviewPickConsumed?.();
+  }, [runOverviewPickJobId, loadingJobs, onRunOverviewPickConsumed]);
+
   const loadEvents = useCallback(async (jobId) => {
     if (!jobId) {
       setEvents([]);
@@ -1357,43 +1225,12 @@ function TaskDetailPanel() {
   }, [selectedJobId]);
 
   useEffect(() => {
-    setTokenListPage(1);
-    setTokenSortColumn(null);
-    setTokenSortDir("desc");
     resetTokenTimeRunEventsRange();
   }, [selectedJobId, resetTokenTimeRunEventsRange]);
-
-  useEffect(() => {
-    setTokenListPage(1);
-  }, [tokenTimeRangeStartLocal, tokenTimeRangeEndLocal]);
 
   const tokenTimeFilteredEvents = useMemo(
     () => filterRunEventsByTimeRange(events, tokenTimeRangeStartLocal, tokenTimeRangeEndLocal),
     [events, tokenTimeRangeStartLocal, tokenTimeRangeEndLocal],
-  );
-
-  const tokenSortedEvents = useMemo(() => {
-    const list = Array.isArray(tokenTimeFilteredEvents) ? tokenTimeFilteredEvents : [];
-    if (!tokenSortColumn) return list;
-    return [...list].sort((a, b) => compareEventsByTokenColumn(a, b, tokenSortColumn, tokenSortDir));
-  }, [tokenTimeFilteredEvents, tokenSortColumn, tokenSortDir]);
-
-  useEffect(() => {
-    const totalPages = tokenSortedEvents.length === 0 ? 1 : Math.ceil(tokenSortedEvents.length / TOKEN_DETAIL_PAGE_SIZE);
-    if (tokenListPage > totalPages) setTokenListPage(totalPages);
-  }, [tokenSortedEvents.length, tokenListPage]);
-
-  const handleTokenSortClick = useCallback(
-    /** @param {'in' | 'out'} column */ (column) => {
-      setTokenListPage(1);
-      if (tokenSortColumn !== column) {
-        setTokenSortColumn(column);
-        setTokenSortDir("desc");
-        return;
-      }
-      setTokenSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    },
-    [tokenSortColumn],
   );
 
   useEffect(() => {
@@ -1411,7 +1248,7 @@ function TaskDetailPanel() {
   }, [selectedJobId]);
 
   useEffect(() => {
-    if (jobDetailTab !== "execution") setRunLogDrillEvent(null);
+    if (jobDetailTab !== "execution" && jobDetailTab !== "trace") setRunLogDrillEvent(null);
   }, [jobDetailTab]);
 
   useEffect(() => {
@@ -1439,9 +1276,6 @@ function TaskDetailPanel() {
   }, [selectedJobId]);
 
   const job = jobs.find((j) => j && j.id === selectedJobId) ?? null;
-
-  const jobDetailAlerts = useMemo(() => computeTaskDetailAlerts({ job, events, loadingEvents }), [job, events, loadingEvents]);
-  const taskDetailDailyExecutionCharts = useMemo(() => buildTaskDetailDailyExecutionCharts(events), [events]);
 
   const runLogStatusOptions = useMemo(() => {
     const uniq = new Set();
@@ -1484,7 +1318,7 @@ function TaskDetailPanel() {
     const fromMs = parseDateTimeLocalInput(tokenTimeRangeStartLocal);
     const toMs = parseDateTimeLocalInput(tokenTimeRangeEndLocal);
     return list.filter((ev) => {
-      const anchor = Number(ev?.runAtMs ?? ev?.ts);
+      const anchor = parseRunEventAnchorMs(ev);
       if (fromMs != null && (!Number.isFinite(anchor) || anchor < fromMs)) return false;
       if (toMs != null && (!Number.isFinite(anchor) || anchor > toMs)) return false;
       if (runLogStatus) {
@@ -1508,6 +1342,7 @@ function TaskDetailPanel() {
         }
       }
       if (q) {
+        const agentDisp = runLogRowAgentDisplay(ev, job);
         const blob = [
           ev.ts,
           ev.runAtMs,
@@ -1515,7 +1350,8 @@ function TaskDetailPanel() {
           ev.durationMs,
           ev.deliveryStatus,
           ev.model,
-          runLogRowAgentId(ev, job),
+          agentDisp.label,
+          agentDisp.id,
           ev.sessionId,
           ev.nextRunAtMs,
           ev.error,
@@ -1549,13 +1385,6 @@ function TaskDetailPanel() {
   const handleRunLogRowClick = useCallback((ev) => {
     setRunLogDrillEvent((cur) => (cur && sameRunLogEvent(cur, ev) ? null : ev));
   }, []);
-
-  const tokenAgg = useMemo(() => aggregateTokenUsage(tokenTimeFilteredEvents), [tokenTimeFilteredEvents]);
-
-  const tokenTableSlice = useMemo(() => {
-    const start = (tokenListPage - 1) * TOKEN_DETAIL_PAGE_SIZE;
-    return tokenSortedEvents.slice(start, start + TOKEN_DETAIL_PAGE_SIZE);
-  }, [tokenSortedEvents, tokenListPage]);
 
   const jobListCounts = useMemo(() => {
     let enabled = 0;
@@ -1625,13 +1454,7 @@ function TaskDetailPanel() {
       const status = j.state?.lastRunStatus != null ? String(j.state.lastRunStatus).toLowerCase() : "";
       const sum = j.listRunSummary;
       const extra = sum
-        ? [
-            String(sum.totalLines ?? ""),
-            String(sum.failCount ?? ""),
-            String(sum.successRatePct ?? ""),
-            String(sum.lastRunTokensTotal ?? ""),
-            String(sum.totalTokensSum ?? ""),
-          ]
+        ? [String(sum.totalLines ?? ""), String(sum.failCount ?? ""), String(sum.successRatePct ?? "")]
             .join(" ")
             .toLowerCase()
         : "";
@@ -1731,7 +1554,7 @@ function TaskDetailPanel() {
 
           <div className="app-card w-full overflow-hidden px-3 py-3 sm:px-4 sm:py-3.5">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,50%)_auto] sm:items-center">
-            <div className="flex min-w-0 max-w-full items-center gap-2 sm:max-w-[25%]">
+            <div className="flex min-w-0 max-w-full items-center gap-2 sm:max-w-[50%]">
                   <label htmlFor="job-list-search" className="shrink-0 whitespace-nowrap text-xs font-medium text-gray-500 dark:text-gray-400">
                     {intl.get("scheduledTasks.taskDetail.listFilterSearchLabel")}
                   </label>
@@ -1871,8 +1694,11 @@ function TaskDetailPanel() {
                 <table className="w-full min-w-[120rem] border-collapse text-left text-xs">
                   <thead className="sticky top-0 z-[1] border-b border-gray-100 bg-gray-50/95 backdrop-blur-sm dark:border-gray-800 dark:bg-gray-900/95">
                     <tr>
+                      <th className="!px-3 !py-2 whitespace-nowrap text-xs font-semibold text-gray-700 dark:text-gray-300">
+                        {intl.get("scheduledTasks.taskDetail.listTableColName")}
+                      </th>
                       <SortableTableTh
-                        label={intl.get("scheduledTasks.taskDetail.listTableColName")}
+                        label={intl.get("scheduledTasks.execution.colJobName")}
                         columnKey="name"
                         sortKey={jobListSortKey}
                         sortOrder={jobListSortOrder}
@@ -1885,7 +1711,7 @@ function TaskDetailPanel() {
                         sortKey={jobListSortKey}
                         sortOrder={jobListSortOrder}
                         onSort={handleJobListSort}
-                        className="!px-2 !py-2 whitespace-nowrap text-xs font-semibold text-gray-700 dark:text-gray-300"
+                        className="!px-3 !py-2 whitespace-nowrap text-xs font-semibold text-gray-700 dark:text-gray-300"
                       />
                       <SortableTableTh
                         label={intl.get("scheduledTasks.taskDetail.listTableColSchedule")}
@@ -1893,7 +1719,7 @@ function TaskDetailPanel() {
                         sortKey={jobListSortKey}
                         sortOrder={jobListSortOrder}
                         onSort={handleJobListSort}
-                        className="!min-w-[10rem] !px-2 !py-2 whitespace-nowrap text-xs font-semibold text-gray-700 dark:text-gray-300"
+                        className="!min-w-[10rem] !px-3 !py-2 whitespace-nowrap text-xs font-semibold text-gray-700 dark:text-gray-300"
                       />
                       <SortableTableTh
                         label={intl.get("scheduledTasks.taskDetail.listTableColNextRunAt")}
@@ -1947,14 +1773,6 @@ function TaskDetailPanel() {
                         className="!px-2 !py-2 whitespace-nowrap text-xs font-semibold text-gray-700 dark:text-gray-300"
                       />
                       <SortableTableTh
-                        label={intl.get("scheduledTasks.taskDetail.listColTotalTokens")}
-                        columnKey="totalTokens"
-                        sortKey={jobListSortKey}
-                        sortOrder={jobListSortOrder}
-                        onSort={handleJobListSort}
-                        className="!px-2 !py-2 whitespace-nowrap text-xs font-semibold text-gray-700 dark:text-gray-300"
-                      />
-                      <SortableTableTh
                         label={intl.get("scheduledTasks.taskDetail.listTableColLastRun")}
                         columnKey="lastRun"
                         sortKey={jobListSortKey}
@@ -1973,14 +1791,6 @@ function TaskDetailPanel() {
                       <SortableTableTh
                         label={intl.get("scheduledTasks.taskDetail.listTableColLastDuration")}
                         columnKey="lastDur"
-                        sortKey={jobListSortKey}
-                        sortOrder={jobListSortOrder}
-                        onSort={handleJobListSort}
-                        className="!px-2 !py-2 whitespace-nowrap text-xs font-semibold text-gray-700 dark:text-gray-300"
-                      />
-                      <SortableTableTh
-                        label={intl.get("scheduledTasks.taskDetail.listColLastTokens")}
-                        columnKey="lastTokens"
                         sortKey={jobListSortKey}
                         sortOrder={jobListSortOrder}
                         onSort={handleJobListSort}
@@ -2007,7 +1817,7 @@ function TaskDetailPanel() {
                   <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
                     {pagedJobs.length === 0 ? (
                       <tr>
-                        <td colSpan={16} className="px-4 py-12 text-center text-sm text-gray-500 dark:text-gray-400">
+                        <td colSpan={15} className="px-4 py-12 text-center text-sm text-gray-500 dark:text-gray-400">
                           {intl.get("common.noData")}
                         </td>
                       </tr>
@@ -2056,10 +1866,10 @@ function TaskDetailPanel() {
                               {j.id}
                             </div>
                           </td>
-                          <td className="max-w-[6rem] whitespace-nowrap px-2 py-2 align-middle font-mono text-xs text-gray-700 dark:text-gray-300" title={j.agentId != null ? String(j.agentId) : ""}>
+                          <td className="max-w-[6rem] whitespace-nowrap px-3 py-2 align-middle font-mono text-xs text-gray-700 dark:text-gray-300" title={j.agentId != null ? String(j.agentId) : ""}>
                             {j.agentId != null && String(j.agentId) ? truncateText(String(j.agentId), 24) : "—"}
                           </td>
-                          <td className="max-w-[14rem] px-2 py-2 align-middle text-gray-800 dark:text-gray-200" title={stratTitle}>
+                          <td className="max-w-[14rem] px-3 py-2 align-middle text-gray-800 dark:text-gray-200" title={stratTitle}>
                             <span className="line-clamp-2 text-[11px] leading-snug">{sem.primary}</span>
                           </td>
                           <td className="whitespace-nowrap px-2 py-2 align-middle text-gray-700 dark:text-gray-300">
@@ -2078,17 +1888,11 @@ function TaskDetailPanel() {
                           <td className="whitespace-nowrap px-2 py-2 align-middle text-gray-700 dark:text-gray-300" title={truncHint}>
                             {formatDuration(s?.maxDurationMs)}
                           </td>
-                          <td className="whitespace-nowrap px-2 py-2 align-middle tabular-nums text-gray-700 dark:text-gray-300" title={truncHint}>
-                            {s?.totalTokensSum != null ? formatTokenInt(s.totalTokensSum) : "—"}
-                          </td>
                           <td className="whitespace-nowrap px-2 py-2 align-middle text-gray-700 dark:text-gray-300">
                             {formatEpochMs(j.state?.lastRunAtMs)}
                           </td>
                           <td className="whitespace-nowrap px-2 py-2 align-middle text-gray-700 dark:text-gray-300">
                             {formatDuration(j.state?.lastDurationMs)}
-                          </td>
-                          <td className="whitespace-nowrap px-2 py-2 align-middle tabular-nums text-gray-700 dark:text-gray-300">
-                            {s?.lastRunTokensTotal != null ? formatTokenInt(s.lastRunTokensTotal) : "—"}
                           </td>
                           <td className="whitespace-nowrap px-2 py-2 align-middle text-gray-700 dark:text-gray-300">
                             {formatEpochMs(s?.lastSuccessAtMs)}
@@ -2132,10 +1936,6 @@ function TaskDetailPanel() {
                                 ? "text-emerald-600 dark:text-emerald-400"
                                 : "text-slate-900 dark:text-slate-50";
                           const failDdClass = fc > 0 ? "text-rose-600 dark:text-rose-400" : "text-slate-900 dark:text-slate-50";
-                          const totalRunsN = s?.totalLines != null ? Number(s.totalLines) : 0;
-                          const totalTokN = s?.totalTokensSum != null ? Number(s.totalTokensSum) : NaN;
-                          const avgTokens =
-                            Number.isFinite(totalTokN) && totalRunsN > 0 ? Math.round(totalTokN / totalRunsN) : null;
                           const metricTile =
                             "flex min-h-[3.75rem] flex-col justify-between rounded-lg border border-slate-200/70 bg-white px-2 py-1.5 text-left shadow-sm dark:border-slate-600/40 dark:bg-slate-950/55 dark:shadow-none";
                           const metricDt =
@@ -2146,13 +1946,9 @@ function TaskDetailPanel() {
                           const metricSectionTitleResults =
                             "mb-1.5 border-b border-sky-200/70 pb-1 text-[10px] font-semibold uppercase leading-tight tracking-wider text-sky-800/90 dark:border-sky-700/50 dark:text-sky-300";
                           const metricSectionPerformance =
-                            "flex h-full min-h-0 flex-col rounded-lg border border-emerald-200/70 bg-emerald-50/90 p-2 ring-1 ring-emerald-900/[0.04] dark:border-emerald-800/45 dark:bg-emerald-950/40 dark:ring-emerald-400/[0.08]";
+                            "flex min-h-0 flex-col rounded-lg border border-emerald-200/70 bg-emerald-50/90 p-2 ring-1 ring-emerald-900/[0.04] dark:border-emerald-800/45 dark:bg-emerald-950/40 dark:ring-emerald-400/[0.08]";
                           const metricSectionTitlePerformance =
                             "mb-1.5 border-b border-emerald-200/70 pb-1 text-[10px] font-semibold uppercase leading-tight tracking-wider text-emerald-800/90 dark:border-emerald-700/50 dark:text-emerald-300";
-                          const metricSectionCost =
-                            "flex h-full min-h-0 flex-col rounded-lg border border-amber-200/75 bg-amber-50/90 p-2 ring-1 ring-amber-900/[0.05] dark:border-amber-800/45 dark:bg-amber-950/35 dark:ring-amber-400/[0.08]";
-                          const metricSectionTitleCost =
-                            "mb-1.5 border-b border-amber-200/70 pb-1 text-[10px] font-semibold uppercase leading-tight tracking-wider text-amber-900/85 dark:border-amber-700/50 dark:text-amber-200";
                           const metricSectionRecent =
                             "rounded-lg border border-violet-200/70 bg-violet-50/90 p-2 ring-1 ring-violet-900/[0.04] dark:border-violet-800/50 dark:bg-violet-950/40 dark:ring-violet-400/[0.09]";
                           const metricSectionTitleRecent =
@@ -2267,12 +2063,6 @@ function TaskDetailPanel() {
                                         </dd>
                                       </div>
                                       <div className={metricTile}>
-                                        <dt className={metricDt}>{intl.get("scheduledTasks.taskDetail.listColLastTokens")}</dt>
-                                        <dd className={`${metricDdBase} text-slate-900 dark:text-slate-50`}>
-                                          {s?.lastRunTokensTotal != null ? formatTokenInt(s.lastRunTokensTotal) : "—"}
-                                        </dd>
-                                      </div>
-                                      <div className={metricTile}>
                                         <dt className={metricDt}>{intl.get("scheduledTasks.taskDetail.listTableColLastDuration")}</dt>
                                         <dd className={`${metricDdBase} text-slate-800 dark:text-slate-100`}>{formatDuration(j.state?.lastDurationMs)}</dd>
                                       </div>
@@ -2305,42 +2095,19 @@ function TaskDetailPanel() {
                                       </div>
                                     </dl>
                                   </section>
-                                  <div className="grid grid-cols-2 items-stretch gap-2">
-                                    <section className={metricSectionPerformance}>
-                                      <h4 className={metricSectionTitlePerformance}>{intl.get("scheduledTasks.taskDetail.cardMetricSectionPerformance")}</h4>
-                                      <dl className="grid flex-1 grid-cols-1 gap-1.5">
-                                        <div className={metricTile}>
-                                          <dt className={metricDt}>{intl.get("scheduledTasks.taskDetail.listColAvgDuration")}</dt>
-                                          <dd className={`${metricDdBase} text-slate-800 dark:text-slate-100`}>{formatDuration(s?.avgDurationMs)}</dd>
-                                        </div>
-                                        <div className={metricTile}>
-                                          <dt className={metricDt}>{intl.get("scheduledTasks.taskDetail.listColMaxDuration")}</dt>
-                                          <dd className={`${metricDdBase} text-slate-800 dark:text-slate-100`}>{formatDuration(s?.maxDurationMs)}</dd>
-                                        </div>
-                                      </dl>
-                                    </section>
-                                    <section className={metricSectionCost}>
-                                      <h4 className={metricSectionTitleCost}>{intl.get("scheduledTasks.taskDetail.cardMetricSectionCost")}</h4>
-                                      <dl className="grid flex-1 grid-cols-1 gap-1.5">
-                                        <div className={metricTile}>
-                                          <dt className={metricDt} title={intl.get("scheduledTasks.taskDetail.listColTotalTokensHint")}>
-                                            {intl.get("scheduledTasks.taskDetail.listColTotalTokens")}
-                                          </dt>
-                                          <dd className={`${metricDdBase} text-slate-900 dark:text-slate-50`}>
-                                            {s?.totalTokensSum != null ? formatTokenInt(s.totalTokensSum) : "—"}
-                                          </dd>
-                                        </div>
-                                        <div className={metricTile}>
-                                          <dt className={metricDt} title={intl.get("scheduledTasks.taskDetail.listColAvgTokensHint")}>
-                                            {intl.get("scheduledTasks.taskDetail.listColAvgTokens")}
-                                          </dt>
-                                          <dd className={`${metricDdBase} text-slate-900 dark:text-slate-50`}>
-                                            {avgTokens != null ? formatTokenInt(avgTokens) : "—"}
-                                          </dd>
-                                        </div>
-                                      </dl>
-                                    </section>
-                                  </div>
+                                  <section className={metricSectionPerformance}>
+                                    <h4 className={metricSectionTitlePerformance}>{intl.get("scheduledTasks.taskDetail.cardMetricSectionPerformance")}</h4>
+                                    <dl className="grid grid-cols-2 gap-1.5">
+                                      <div className={metricTile}>
+                                        <dt className={metricDt}>{intl.get("scheduledTasks.taskDetail.listColAvgDuration")}</dt>
+                                        <dd className={`${metricDdBase} text-slate-800 dark:text-slate-100`}>{formatDuration(s?.avgDurationMs)}</dd>
+                                      </div>
+                                      <div className={metricTile}>
+                                        <dt className={metricDt}>{intl.get("scheduledTasks.taskDetail.listColMaxDuration")}</dt>
+                                        <dd className={`${metricDdBase} text-slate-800 dark:text-slate-100`}>{formatDuration(s?.maxDurationMs)}</dd>
+                                      </div>
+                                    </dl>
+                                  </section>
                                 </div>
                               </div>
                             </article>
@@ -2406,10 +2173,9 @@ function TaskDetailPanel() {
                     </nav>
                   </div>
 
-                  {(jobDetailTab === "tokens" ||
-                    jobDetailTab === "results" ||
-                    jobDetailTab === "performance" ||
-                    jobDetailTab === "execution") &&
+                  {(jobDetailTab === "results" ||
+                    jobDetailTab === "execution" ||
+                    jobDetailTab === "trace") &&
                     job && (
                     <div>
                       <TaskDetailRunEventsTimeRangeFilter
@@ -2425,7 +2191,8 @@ function TaskDetailPanel() {
                   )}
 
                   {jobDetailTab === "summary" && job && (
-                    <div className="grid gap-4 pt-4 lg:grid-cols-2">
+                    <div className="space-y-4 pt-4">
+              <div className="grid gap-4 lg:grid-cols-2">
               <section className="app-card overflow-hidden border border-gray-100 dark:border-gray-800">
                 <div className="border-b border-gray-100 px-4 py-3 dark:border-gray-800">
                   <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
@@ -2521,107 +2288,68 @@ function TaskDetailPanel() {
                   </div>
                 </dl>
               </section>
+              </div>
 
-              <section className="app-card overflow-hidden border border-gray-100 lg:col-span-2 dark:border-gray-800">
+              <section className="app-card overflow-hidden border border-gray-100 dark:border-gray-800">
                 <div className="border-b border-gray-100 px-4 py-3 dark:border-gray-800">
                   <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
-                    {intl.get("scheduledTasks.taskDetail.payloadTitle")}
+                    {intl.get("scheduledTasks.taskDetail.f.taskContent")}
                   </h2>
                 </div>
-                <div className="space-y-3 px-4 py-3">
-                  <div className="flex flex-wrap gap-4 text-sm">
-                    <span>
-                      <span className="text-gray-500 dark:text-gray-400">{intl.get("scheduledTasks.taskDetail.f.payloadKind")}: </span>
-                      <span className="text-gray-900 dark:text-gray-100">{job.payload?.kind ?? "—"}</span>
-                    </span>
-                    <span>
-                      <span className="text-gray-500 dark:text-gray-400">{intl.get("scheduledTasks.taskDetail.f.model")}: </span>
-                      <span className="font-mono text-xs text-gray-900 dark:text-gray-100">{job.payload?.model ?? "—"}</span>
-                    </span>
-                  </div>
-                  <pre className="max-h-48 overflow-auto rounded-lg border border-gray-100 bg-gray-50/80 p-3 text-xs text-gray-800 dark:border-gray-800 dark:bg-gray-950/50 dark:text-gray-200">
-                    {job.payload?.message != null ? String(job.payload.message) : "—"}
-                  </pre>
-                </div>
-              </section>
-
-              <section className="app-card overflow-hidden border border-gray-100 lg:col-span-2 dark:border-gray-800">
-                <div className="px-4 py-4">
-                  {loadingEvents && !events.length ? (
-                    <p className="text-xs text-gray-500 dark:text-gray-400">{intl.get("scheduledTasks.taskDetail.runHistory.loading")}</p>
-                  ) : (
-                    <ScheduledTasksRunOverviewCharts charts={taskDetailDailyExecutionCharts} loading={loadingEvents} heatmapOnly />
-                  )}
+                <div className="px-4 py-3">
+                  {(() => {
+                    const text = jobPayloadTaskContent(job);
+                    return text !== "" ? (
+                      <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap break-words rounded-md border border-gray-100 bg-gray-50/90 px-2.5 py-2 font-sans text-xs text-gray-900 dark:border-gray-800 dark:bg-gray-950/50 dark:text-gray-100">
+                        {text}
+                      </pre>
+                    ) : (
+                      <p className="text-sm text-gray-500 dark:text-gray-400">—</p>
+                    );
+                  })()}
                 </div>
               </section>
             </div>
           )}
 
-          {jobDetailTab === "alerts" && job && (
-            <div className="space-y-3 pt-4">
-              {errorEvents ? (
-                <p className="rounded-lg border border-rose-100 bg-rose-50/80 px-3 py-2 text-xs text-rose-800 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-200">
-                  {intl.get("common.loadFailed", { error: errorEvents })}
-                </p>
-              ) : null}
-              {loadingEvents && !events.length && !jobDetailAlerts.length ? (
-                <p className="text-xs text-gray-500 dark:text-gray-400">{intl.get("common.loadingList")}</p>
-              ) : null}
-              {!loadingEvents && !jobDetailAlerts.length ? (
-                <p className="rounded-lg border border-emerald-100/80 bg-emerald-50/50 px-3 py-3 text-sm text-emerald-900 dark:border-emerald-900/30 dark:bg-emerald-950/25 dark:text-emerald-100">
-                  {intl.get("scheduledTasks.taskDetail.alerts.empty")}
-                </p>
-              ) : null}
-              {jobDetailAlerts.length ? (
-                <ul className="space-y-2">
-                  {jobDetailAlerts.map((row, idx) => {
-                    const sev = row.severity != null ? String(row.severity) : "medium";
-                    const border =
-                      sev === "high"
-                        ? "border-rose-200/90 dark:border-rose-900/60"
-                        : sev === "low"
-                          ? "border-slate-200 dark:border-slate-700"
-                          : "border-amber-200/90 dark:border-amber-900/50";
-                    const bg =
-                      sev === "high"
-                        ? "bg-rose-50/90 dark:bg-rose-950/35"
-                        : sev === "low"
-                          ? "bg-slate-50/80 dark:bg-slate-900/40"
-                          : "bg-amber-50/80 dark:bg-amber-950/25";
-                    const badge =
-                      sev === "high"
-                        ? "bg-rose-600 text-white dark:bg-rose-700"
-                        : sev === "low"
-                          ? "bg-slate-500 text-white dark:bg-slate-600"
-                          : "bg-amber-600 text-white dark:bg-amber-700";
-                    return (
-                      <li
-                        key={`${row.code}-${idx}`}
-                        className={`rounded-lg border px-3 py-2.5 text-xs leading-relaxed text-gray-800 dark:text-gray-100 ${border} ${bg}`}
-                      >
-                        <div className="flex flex-wrap items-start gap-2">
-                          <span className={`inline-flex shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${badge}`}>
-                            {intl.get(`scheduledTasks.taskDetail.alerts.severity.${sev}`) || sev}
-                          </span>
-                          <div className="min-w-0 flex-1 space-y-1">
-                            <p>{formatTaskDetailAlertMessage(row)}</p>
-                            {(row.code === "LAST_RUN_FAILED" || row.code === "SAMPLE_NEWEST_RUN_FAILED") && row.params?.preview ? (
-                              <pre className="max-h-24 overflow-auto whitespace-pre-wrap break-words rounded border border-rose-100/80 bg-white/80 p-2 font-mono text-[11px] text-gray-800 dark:border-rose-900/40 dark:bg-gray-950/50 dark:text-gray-200">
-                                {String(row.params.preview)}
-                              </pre>
-                            ) : null}
-                          </div>
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
-              ) : null}
-              <div className="pt-1">
-                <button type="button" className="app-btn-outline text-xs" onClick={() => setJobDetailTab("execution")}>
-                  {intl.get("scheduledTasks.taskDetail.alerts.goExecution")}
-                </button>
-              </div>
+          {jobDetailTab === "trace" && job && (
+            <div className="pt-4">
+              <section className="app-card border border-gray-100 dark:border-gray-800">
+                {errorEvents && (
+                  <p className="border-b border-rose-100 bg-rose-50/80 px-4 py-2 text-sm text-rose-800 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-200">
+                    {intl.get("common.loadFailed", { error: errorEvents })}
+                  </p>
+                )}
+                <div className={`space-y-6 px-4 py-4 ${loadingEvents ? "opacity-60" : ""}`}>
+                  <JobRunTraceStatusTrendChart
+                    events={tokenTimeFilteredEvents}
+                    loading={loadingEvents}
+                    rangeStartLocal={tokenTimeRangeStartLocal}
+                    rangeEndLocal={tokenTimeRangeEndLocal}
+                  />
+                  <div className="border-t border-gray-100 pt-5 dark:border-gray-800">
+                    <JobRunTraceTimeline
+                      events={tokenTimeFilteredEvents}
+                      job={job}
+                      loading={loadingEvents}
+                      drillEvent={runLogDrillEvent}
+                      onEventToggle={handleRunLogRowClick}
+                      onAgentTrace={(agentId, sessionKey) => navigateRunLogAgentToDigitalEmployeePortrait(agentId, sessionKey)}
+                      renderDrillPanel={(ev) => (
+                        <RunLogDrillPanel
+                          event={ev}
+                          job={job}
+                          onClose={() => setRunLogDrillEvent(null)}
+                          onNavigateToTaskDetail={(jid) => {
+                            const s = String(jid ?? "").trim();
+                            if (s) setSelectedJobId(s);
+                          }}
+                        />
+                      )}
+                    />
+                  </div>
+                </div>
+              </section>
             </div>
           )}
 
@@ -2738,6 +2466,9 @@ function TaskDetailPanel() {
                     <table className="w-full min-w-[1040px] border-collapse text-left text-sm">
                       <thead>
                         <tr className="border-b border-gray-100 bg-gray-50/90 dark:border-gray-800 dark:bg-gray-800/80">
+                          <th className="w-10 px-2 py-3 text-center font-semibold text-gray-700 dark:text-gray-300" scope="col">
+                            <span className="sr-only">{intl.get("scheduledTasks.taskDetail.runLog.colExpand")}</span>
+                          </th>
                           <th className="px-3 py-3 font-semibold text-gray-700 dark:text-gray-300">{intl.get("scheduledTasks.taskDetail.colEventTs")}</th>
                           <th className="px-3 py-3 font-semibold text-gray-700 dark:text-gray-300">{intl.get("scheduledTasks.taskDetail.colRunAt")}</th>
                           <th className="px-3 py-3 font-semibold text-gray-700 dark:text-gray-300">{intl.get("scheduledTasks.taskDetail.colStatus")}</th>
@@ -2753,19 +2484,19 @@ function TaskDetailPanel() {
                       <tbody>
                         {events.length === 0 ? (
                           <tr>
-                            <td colSpan={10} className="px-4 py-10 text-center text-sm text-gray-500 dark:text-gray-400">
+                            <td colSpan={11} className="px-4 py-10 text-center text-sm text-gray-500 dark:text-gray-400">
                               {loadingEvents ? intl.get("common.loadingList") : intl.get("common.noData")}
                             </td>
                           </tr>
                         ) : runLogFiltered.length === 0 ? (
                           <tr>
-                            <td colSpan={10} className="px-4 py-10 text-center text-sm text-gray-500 dark:text-gray-400">
+                            <td colSpan={11} className="px-4 py-10 text-center text-sm text-gray-500 dark:text-gray-400">
                               {intl.get("scheduledTasks.taskDetail.runLog.noMatch")}
                             </td>
                           </tr>
                         ) : (
                           runLogPageRows.flatMap((ev, idx) => {
-                            const rowAgent = runLogRowAgentId(ev, job);
+                            const agentDisp = runLogRowAgentDisplay(ev, job);
                             const rowKey = `${String(ev.ts ?? "")}-${String(ev.runAtMs ?? "")}-${idx}-${runLogPage}`;
                             const drillOpen = Boolean(runLogDrillEvent && sameRunLogEvent(runLogDrillEvent, ev));
                             const dataRow = (
@@ -2778,6 +2509,16 @@ function TaskDetailPanel() {
                                   drillOpen ? "bg-primary/[0.08] ring-1 ring-inset ring-primary/15 dark:bg-primary/10" : "",
                                 ].join(" ")}
                               >
+                                <td className="px-2 py-2.5 align-middle text-center text-gray-500 dark:text-gray-400" aria-hidden>
+                                  <span
+                                    className={[
+                                      "inline-flex transition-transform duration-150",
+                                      drillOpen ? "rotate-0" : "-rotate-90",
+                                    ].join(" ")}
+                                  >
+                                    <Icon name="chevron" className="h-4 w-4" />
+                                  </span>
+                                </td>
                                 <td className="whitespace-nowrap px-3 py-2.5 text-gray-700 dark:text-gray-300">{formatEpochMs(ev.ts)}</td>
                                 <td className="whitespace-nowrap px-3 py-2.5 text-gray-700 dark:text-gray-300">{formatEpochMs(ev.runAtMs)}</td>
                                 <td className="px-3 py-2.5">
@@ -2801,18 +2542,18 @@ function TaskDetailPanel() {
                                 <td className="max-w-[140px] truncate px-3 py-2.5 font-mono text-xs text-gray-600 dark:text-gray-400" title={ev.model != null ? String(ev.model) : ""}>
                                   {ev.model ?? "—"}
                                 </td>
-                                <td className="max-w-[120px] truncate px-3 py-2.5 font-mono text-xs text-gray-600 dark:text-gray-400" title={rowAgent || undefined}>
-                                  {rowAgent !== "" ? (
+                                <td className="max-w-[140px] truncate px-3 py-2.5 text-xs text-gray-700 dark:text-gray-300" title={agentDisp.titleTip || agentDisp.label || undefined}>
+                                  {agentDisp.label !== "" ? (
                                     <button
                                       type="button"
                                       className="max-w-full truncate text-left text-primary underline decoration-primary/40 underline-offset-2 hover:decoration-primary dark:text-primary dark:hover:text-primary"
                                       title={intl.get("scheduledTasks.taskDetail.runLog.agentOpenPortraitTitle")}
                                       onClick={(e) => {
                                         e.stopPropagation();
-                                        navigateRunLogAgentToDigitalEmployeePortrait(rowAgent, ev.sessionKey);
+                                        navigateRunLogAgentToDigitalEmployeePortrait(agentDisp.id, ev.sessionKey);
                                       }}
                                     >
-                                      {truncateText(rowAgent, 32)}
+                                      {truncateText(agentDisp.label, 32)}
                                     </button>
                                   ) : (
                                     "—"
@@ -2845,8 +2586,16 @@ function TaskDetailPanel() {
                             return [
                               dataRow,
                               <tr key={`${rowKey}-drill`} className="border-b border-gray-100 dark:border-gray-800">
-                                <td colSpan={10} className="bg-gray-50/95 px-3 pb-3 pt-1.5 align-top dark:bg-gray-900/50">
-                                  <RunLogDrillPanel event={runLogDrillEvent} job={job} onClose={() => setRunLogDrillEvent(null)} />
+                                <td colSpan={11} className="bg-gray-50/95 px-3 pb-3 pt-1.5 align-top dark:bg-gray-900/50">
+                                  <RunLogDrillPanel
+                                    event={runLogDrillEvent}
+                                    job={job}
+                                    onClose={() => setRunLogDrillEvent(null)}
+                                    onNavigateToTaskDetail={(jid) => {
+                                      const s = String(jid ?? "").trim();
+                                      if (s) setSelectedJobId(s);
+                                    }}
+                                  />
                                 </td>
                               </tr>,
                             ];
@@ -2863,139 +2612,7 @@ function TaskDetailPanel() {
           {jobDetailTab === "results" && job && (
             <div className={`space-y-4 pt-4 ${loadingEvents ? "opacity-60" : ""}`}>
               <JobRunResultsPanel events={tokenTimeFilteredEvents} loading={loadingEvents} error={errorEvents} />
-            </div>
-          )}
-
-          {jobDetailTab === "performance" && job && (
-            <div className={`space-y-4 pt-4 ${loadingEvents ? "opacity-60" : ""}`}>
               <JobPerformancePanel events={tokenTimeFilteredEvents} loading={loadingEvents} error={errorEvents} />
-            </div>
-          )}
-
-          {jobDetailTab === "tokens" && selectedJobId && (
-            <div className="pt-4">
-              <section className="app-card overflow-hidden border border-gray-100 dark:border-gray-800">
-                {errorEvents && (
-                  <p className="border-b border-rose-100 bg-rose-50/80 px-4 py-2 text-sm text-rose-800 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-200">
-                    {intl.get("common.loadFailed", { error: errorEvents })}
-                  </p>
-                )}
-                <div className={`space-y-4 px-4 py-4 ${loadingEvents ? "opacity-60" : ""}`}>
-                  <JobTokenStatCards tokenAgg={tokenAgg} />
-                  <JobTokenChartsPanel events={tokenTimeFilteredEvents} onBrushDateRange={handleTokenTimeBrushFromChart} />
-                  <div className="space-y-2">
-                    <TablePagination
-                      page={tokenListPage}
-                      pageSize={TOKEN_DETAIL_PAGE_SIZE}
-                      total={tokenSortedEvents.length}
-                      onPageChange={setTokenListPage}
-                      loading={loadingEvents}
-                    />
-                    <div className="overflow-x-auto">
-                    <table className="w-full min-w-[720px] border-collapse text-left text-sm">
-                      <thead>
-                        <tr className="border-b border-gray-100 bg-gray-50/90 dark:border-gray-800 dark:bg-gray-800/80">
-                          <th className="px-3 py-3 font-semibold text-gray-700 dark:text-gray-300">{intl.get("scheduledTasks.taskDetail.colEventTs")}</th>
-                          <th className="px-3 py-3 font-semibold text-gray-700 dark:text-gray-300">{intl.get("scheduledTasks.taskDetail.colRunAt")}</th>
-                          <th className="px-3 py-3 font-semibold text-gray-700 dark:text-gray-300">{intl.get("scheduledTasks.taskDetail.colStatus")}</th>
-                          <th className="px-3 py-3 font-semibold text-gray-700 dark:text-gray-300">{intl.get("scheduledTasks.taskDetail.colModel")}</th>
-                          <th className="px-3 py-3 font-semibold text-gray-700 dark:text-gray-300">{intl.get("scheduledTasks.taskDetail.colProvider")}</th>
-                          <th
-                            className="px-3 py-3 text-right font-semibold text-gray-700 dark:text-gray-300"
-                            aria-sort={tokenSortColumn === "in" ? (tokenSortDir === "asc" ? "ascending" : "descending") : "none"}
-                          >
-                            <button
-                              type="button"
-                              onClick={() => handleTokenSortClick("in")}
-                              title={intl.get("scheduledTasks.taskDetail.sortTokenInHint")}
-                              className="inline-flex w-full items-center justify-end gap-1 rounded-md px-1.5 py-0.5 text-right text-gray-700 hover:bg-gray-200/70 dark:text-gray-300 dark:hover:bg-gray-700/60"
-                            >
-                              <span>{intl.get("scheduledTasks.taskDetail.colTokenIn")}</span>
-                              {tokenSortColumn === "in" ? (
-                                <span className="tabular-nums text-primary" aria-hidden>
-                                  {tokenSortDir === "asc" ? "↑" : "↓"}
-                                </span>
-                              ) : null}
-                            </button>
-                          </th>
-                          <th
-                            className="px-3 py-3 text-right font-semibold text-gray-700 dark:text-gray-300"
-                            aria-sort={tokenSortColumn === "out" ? (tokenSortDir === "asc" ? "ascending" : "descending") : "none"}
-                          >
-                            <button
-                              type="button"
-                              onClick={() => handleTokenSortClick("out")}
-                              title={intl.get("scheduledTasks.taskDetail.sortTokenOutHint")}
-                              className="inline-flex w-full items-center justify-end gap-1 rounded-md px-1.5 py-0.5 text-right text-gray-700 hover:bg-gray-200/70 dark:text-gray-300 dark:hover:bg-gray-700/60"
-                            >
-                              <span>{intl.get("scheduledTasks.taskDetail.colTokenOut")}</span>
-                              {tokenSortColumn === "out" ? (
-                                <span className="tabular-nums text-primary" aria-hidden>
-                                  {tokenSortDir === "asc" ? "↑" : "↓"}
-                                </span>
-                              ) : null}
-                            </button>
-                          </th>
-                          <th className="px-3 py-3 text-right font-semibold text-gray-700 dark:text-gray-300">{intl.get("scheduledTasks.taskDetail.colTokenTotal")}</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {events.length === 0 ? (
-                          <tr>
-                            <td colSpan={8} className="px-4 py-10 text-center text-sm text-gray-500 dark:text-gray-400">
-                              {loadingEvents ? intl.get("common.loadingList") : intl.get("common.noData")}
-                            </td>
-                          </tr>
-                        ) : tokenTimeFilteredEvents.length === 0 ? (
-                          <tr>
-                            <td colSpan={8} className="px-4 py-10 text-center text-sm text-gray-500 dark:text-gray-400">
-                              {intl.get("scheduledTasks.taskDetail.tokens.noRowsInTimeRange")}
-                            </td>
-                          </tr>
-                        ) : (
-                          tokenTableSlice.map((ev, idx) => {
-                            const t = extractUsageTokens(ev);
-                            const globalIdx = (tokenListPage - 1) * TOKEN_DETAIL_PAGE_SIZE + idx;
-                            return (
-                              <tr
-                                key={`tok-${String(ev.ts ?? "")}-${String(ev.runAtMs ?? "")}-${globalIdx}`}
-                                className="border-b border-gray-50 transition-colors hover:bg-gray-50/80 dark:border-gray-800/80 dark:hover:bg-gray-800/40"
-                              >
-                                <td className="whitespace-nowrap px-3 py-2.5 text-gray-700 dark:text-gray-300">{formatEpochMs(ev.ts)}</td>
-                                <td className="whitespace-nowrap px-3 py-2.5 text-gray-700 dark:text-gray-300">{formatEpochMs(ev.runAtMs)}</td>
-                                <td className="px-3 py-2.5">
-                                  {ev.status != null && String(ev.status) ? (
-                                    <span
-                                      className={[
-                                        "inline-flex rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset",
-                                        statusClass(ev.status),
-                                      ].join(" ")}
-                                    >
-                                      {String(ev.status)}
-                                    </span>
-                                  ) : (
-                                    "—"
-                                  )}
-                                </td>
-                                <td className="max-w-[160px] truncate px-3 py-2.5 font-mono text-xs text-gray-600 dark:text-gray-400" title={ev.model != null ? String(ev.model) : ""}>
-                                  {ev.model ?? "—"}
-                                </td>
-                                <td className="max-w-[120px] truncate px-3 py-2.5 text-xs text-gray-600 dark:text-gray-400" title={ev.provider != null ? String(ev.provider) : ""}>
-                                  {ev.provider ?? "—"}
-                                </td>
-                                <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums text-gray-800 dark:text-gray-200">{formatTokenInt(t.in)}</td>
-                                <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums text-gray-800 dark:text-gray-200">{formatTokenInt(t.out)}</td>
-                                <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums text-gray-800 dark:text-gray-200">{formatTokenInt(t.total)}</td>
-                              </tr>
-                            );
-                          })
-                        )}
-                      </tbody>
-                    </table>
-                    </div>
-                  </div>
-                </div>
-              </section>
             </div>
           )}
                 </div>
@@ -3008,7 +2625,7 @@ function TaskDetailPanel() {
   );
 }
 
-function ExecutionDetailPanel() {
+function ExecutionDetailPanel({ runOverviewJobFilter, onRunOverviewJobFilterConsumed, onOpenTaskDetailFromExecution }) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(RUN_RECORDS_PAGE_SIZE);
   const [loading, setLoading] = useState(true);
@@ -3020,6 +2637,10 @@ function ExecutionDetailPanel() {
   const [searchInput, setSearchInput] = useState("");
   const [searchQ, setSearchQ] = useState("");
   const [agentOptions, setAgentOptions] = useState([]);
+  const [jobIdFilter, setJobIdFilter] = useState("");
+  /** 点击行展开的运行详情（与任务详情运行日志下钻同面板） */
+  const [executionDrillEvent, setExecutionDrillEvent] = useState(/** @type {object | null} */ (null));
+  const execTimeFilter = useRunEventsTimeRangeFilter();
 
   useEffect(() => {
     const t = setTimeout(() => setSearchQ(searchInput.trim()), 300);
@@ -3028,7 +2649,18 @@ function ExecutionDetailPanel() {
 
   useEffect(() => {
     setPage(1);
-  }, [agentFilter, statusFilter, searchQ, pageSize]);
+  }, [agentFilter, statusFilter, searchQ, pageSize, jobIdFilter, execTimeFilter.rangeStartLocal, execTimeFilter.rangeEndLocal]);
+
+  useEffect(() => {
+    setExecutionDrillEvent(null);
+  }, [page, pageSize, agentFilter, statusFilter, searchQ, jobIdFilter, execTimeFilter.rangeStartLocal, execTimeFilter.rangeEndLocal]);
+
+  useEffect(() => {
+    if (runOverviewJobFilter == null || String(runOverviewJobFilter).trim() === "") return;
+    setJobIdFilter(String(runOverviewJobFilter).trim());
+    setPage(1);
+    onRunOverviewJobFilterConsumed?.();
+  }, [runOverviewJobFilter, onRunOverviewJobFilterConsumed]);
 
   useEffect(() => {
     let cancelled = false;
@@ -3063,6 +2695,11 @@ function ExecutionDetailPanel() {
       if (agentFilter) q.set("agentId", agentFilter);
       if (statusFilter) q.set("status", statusFilter);
       if (searchQ) q.set("q", searchQ);
+      if (jobIdFilter) q.set("jobId", jobIdFilter);
+      const startMs = parseDateTimeLocalInput(execTimeFilter.rangeStartLocal);
+      const endMs = parseDateTimeLocalInput(execTimeFilter.rangeEndLocal);
+      if (startMs != null) q.set("startIso", new Date(startMs).toISOString());
+      if (endMs != null) q.set("endIso", new Date(endMs).toISOString());
       const res = await fetch(`/api/cron-runs?${q.toString()}`);
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -3080,25 +2717,63 @@ function ExecutionDetailPanel() {
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, agentFilter, statusFilter, searchQ]);
+  }, [page, pageSize, agentFilter, statusFilter, searchQ, jobIdFilter, execTimeFilter.rangeStartLocal, execTimeFilter.rangeEndLocal]);
 
   useEffect(() => {
     load();
   }, [load]);
 
+  const handleExecutionRowClick = useCallback((r) => {
+    const ev = executionRunRowToRunLogDrillEvent(r);
+    setExecutionDrillEvent((cur) => (cur && sameRunLogEvent(cur, ev) ? null : ev));
+  }, []);
+
+  const executionRowOpenHint = intl.get("scheduledTasks.execution.rowOpenDetailHint");
+
+  const openTaskDetailForJob = useCallback(
+    (jobId) => {
+      const id = jobId != null ? String(jobId).trim() : "";
+      if (!id || typeof onOpenTaskDetailFromExecution !== "function") return;
+      onOpenTaskDetailFromExecution(id);
+    },
+    [onOpenTaskDetailFromExecution],
+  );
+
   return (
     <div className="space-y-4">
-      <section className="app-card overflow-hidden border border-gray-100 dark:border-gray-800">
-        {error && (
-          <p className="border-b border-rose-100 bg-rose-50/80 px-4 py-2 text-sm text-rose-800 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-200">
-            {intl.get("common.loadFailed", { error })}
-          </p>
-        )}
+      <section className="overflow-hidden rounded-xl border border-gray-200/90 bg-gradient-to-b from-slate-50/90 to-white shadow-sm ring-1 ring-black/[0.03] dark:border-gray-700 dark:from-gray-900/50 dark:to-gray-900/30 dark:ring-white/[0.04]">
+        <TaskDetailRunEventsTimeRangeFilter
+          activeDays={execTimeFilter.activeDays}
+          activePresetHours={execTimeFilter.activePresetHours}
+          onPreset={execTimeFilter.onPreset}
+          rangeStartLocal={execTimeFilter.rangeStartLocal}
+          rangeEndLocal={execTimeFilter.rangeEndLocal}
+          onRangeLocalChange={execTimeFilter.onRangeLocalChange}
+          highlightPresets={execTimeFilter.highlightPresets}
+          className="border-0 bg-transparent shadow-none ring-0 dark:bg-transparent"
+        />
+      </section>
 
-        <div className="border-b border-gray-100 px-4 py-3 dark:border-gray-800">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-[25%_auto] sm:items-center">
-            <div className="flex min-w-0 max-w-full items-center gap-2">
-              <label htmlFor="execution-run-search" className="shrink-0 whitespace-nowrap text-xs font-medium text-gray-500 dark:text-gray-400">
+      <section className="sticky top-0 z-30 overflow-hidden rounded-xl border border-gray-200/90 bg-gradient-to-b from-slate-50/95 to-white shadow-sm ring-1 ring-black/[0.03] backdrop-blur-sm dark:border-gray-700 dark:from-gray-900/95 dark:to-gray-900/80 dark:ring-white/[0.04]">
+        <div className="space-y-4 px-4 py-4">
+          {jobIdFilter ? (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-primary/25 bg-primary/5 px-3 py-2 text-xs text-gray-800 dark:border-primary/30 dark:bg-primary/10 dark:text-gray-100">
+              <span>
+                {intl.get("scheduledTasks.execution.filterByJobBanner", { jobId: jobIdFilter })}
+              </span>
+              <button
+                type="button"
+                className="rounded-md border border-gray-200 bg-white px-2 py-0.5 text-[11px] font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700/60"
+                onClick={() => setJobIdFilter("")}
+              >
+                {intl.get("scheduledTasks.execution.clearJobFilter")}
+              </button>
+            </div>
+          ) : null}
+
+          <div className="flex min-w-0 flex-col gap-4 md:flex-row md:items-end md:justify-between md:gap-6">
+            <div className="min-w-0 flex-1">
+              <label htmlFor="execution-run-search" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
                 {intl.get("scheduledTasks.execution.searchLabel")}
               </label>
               <input
@@ -3107,15 +2782,16 @@ function ExecutionDetailPanel() {
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
                 placeholder={intl.get("scheduledTasks.execution.searchPlaceholder")}
-                className="app-input h-8 min-w-0 w-full flex-1 px-2.5 py-0 text-xs leading-8"
+                className="app-input h-10 w-full min-w-0 px-3 py-0 text-sm"
                 autoComplete="off"
               />
             </div>
-            <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 sm:justify-self-end sm:gap-x-3 sm:gap-y-2">
-              <div className="flex min-w-0 items-center gap-1.5">
+
+            <div className="flex min-w-0 shrink-0 flex-wrap items-end justify-start gap-3 sm:justify-end lg:justify-end">
+              <div className="min-w-[7.5rem] flex-1 sm:min-w-[9rem] sm:flex-none">
                 <label
                   htmlFor="execution-run-agent-filter"
-                  className="shrink-0 whitespace-nowrap text-xs font-medium text-gray-500 dark:text-gray-400"
+                  className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
                 >
                   {intl.get("scheduledTasks.execution.filterAgent")}
                 </label>
@@ -3123,7 +2799,7 @@ function ExecutionDetailPanel() {
                   id="execution-run-agent-filter"
                   value={agentFilter}
                   onChange={(e) => setAgentFilter(e.target.value)}
-                  className="app-input h-8 min-w-0 flex-1 px-2.5 py-0 text-xs leading-8"
+                  className="app-input h-10 w-full min-w-0 px-3 py-0 text-sm"
                 >
                   <option value="">{intl.get("scheduledTasks.execution.filterAgentAll")}</option>
                   {agentOptions.map((a) => (
@@ -3133,10 +2809,10 @@ function ExecutionDetailPanel() {
                   ))}
                 </select>
               </div>
-              <div className="flex min-w-0 items-center gap-1.5">
+              <div className="min-w-[7.5rem] flex-1 sm:min-w-[9rem] sm:flex-none">
                 <label
                   htmlFor="execution-run-status-filter"
-                  className="shrink-0 whitespace-nowrap text-xs font-medium text-gray-500 dark:text-gray-400"
+                  className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
                 >
                   {intl.get("scheduledTasks.execution.filterStatus")}
                 </label>
@@ -3144,7 +2820,7 @@ function ExecutionDetailPanel() {
                   id="execution-run-status-filter"
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value)}
-                  className="app-input h-8 min-w-0 flex-1 px-2.5 py-0 text-xs leading-8"
+                  className="app-input h-10 w-full min-w-0 px-3 py-0 text-sm"
                 >
                   <option value="">{intl.get("scheduledTasks.execution.filterStatusAll")}</option>
                   <option value="success">{intl.get("scheduledTasks.execution.filterStatusSuccess")}</option>
@@ -3154,6 +2830,14 @@ function ExecutionDetailPanel() {
             </div>
           </div>
         </div>
+      </section>
+
+      <section className="app-card overflow-hidden border border-gray-100 dark:border-gray-800">
+        {error && (
+          <p className="border-b border-rose-100 bg-rose-50/80 px-4 py-2 text-sm text-rose-800 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-200">
+            {intl.get("common.loadFailed", { error })}
+          </p>
+        )}
 
         <div className="border-b border-gray-100 px-4 py-3 dark:border-gray-800">
           <TablePagination
@@ -3177,81 +2861,148 @@ function ExecutionDetailPanel() {
         ) : (
           <div className={`relative ${loading ? "opacity-60" : ""}`}>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1540px] border-collapse text-left text-sm">
+              <table className="w-full min-w-[1280px] border-collapse text-left text-sm">
                 <thead>
                   <tr className="border-b border-gray-100 bg-gray-50/90 dark:border-gray-800 dark:bg-gray-800/80">
+                    <th className="w-10 px-2 py-3 text-center font-semibold text-gray-700 dark:text-gray-300" scope="col">
+                      <span className="sr-only">{intl.get("scheduledTasks.taskDetail.runLog.colExpand")}</span>
+                    </th>
                     <th className="px-3 py-3 font-semibold text-gray-700 dark:text-gray-300">{intl.get("scheduledTasks.execution.colRunId")}</th>
                     <th className="px-3 py-3 font-semibold text-gray-700 dark:text-gray-300">{intl.get("scheduledTasks.execution.colJobId")}</th>
                     <th className="px-3 py-3 font-semibold text-gray-700 dark:text-gray-300">{intl.get("scheduledTasks.execution.colJobName")}</th>
-                    <th className="px-3 py-3 font-semibold text-gray-700 dark:text-gray-300">{intl.get("scheduledTasks.execution.colCron")}</th>
-                    <th className="px-3 py-3 font-semibold text-gray-700 dark:text-gray-300">{intl.get("scheduledTasks.execution.colJobSource")}</th>
-                    <th className="px-3 py-3 font-semibold text-gray-700 dark:text-gray-300">{intl.get("scheduledTasks.execution.colJobSessionId")}</th>
-                    <th className="px-3 py-3 font-semibold text-gray-700 dark:text-gray-300">{intl.get("scheduledTasks.execution.colJobWorkspace")}</th>
-                    <th className="px-3 py-3 font-semibold text-gray-700 dark:text-gray-300">{intl.get("scheduledTasks.execution.colJobTimeout")}</th>
+                    <th className="px-3 py-3 font-semibold text-gray-700 dark:text-gray-300">{intl.get("scheduledTasks.execution.colAgent")}</th>
                     <th className="px-3 py-3 font-semibold text-gray-700 dark:text-gray-300">{intl.get("scheduledTasks.execution.colDeliveryStatus")}</th>
                     <th className="px-3 py-3 font-semibold text-gray-700 dark:text-gray-300">{intl.get("scheduledTasks.execution.colStatus")}</th>
                     <th className="px-3 py-3 font-semibold text-gray-700 dark:text-gray-300">{intl.get("scheduledTasks.execution.colStarted")}</th>
                     <th className="px-3 py-3 font-semibold text-gray-700 dark:text-gray-300">{intl.get("scheduledTasks.execution.colFinished")}</th>
                     <th className="px-3 py-3 font-semibold text-gray-700 dark:text-gray-300">{intl.get("scheduledTasks.execution.colDuration")}</th>
+                    <th className="px-3 py-3 text-right font-semibold text-gray-700 dark:text-gray-300">{intl.get("scheduledTasks.execution.colTokenUsage")}</th>
+                    <th className="px-3 py-3 font-semibold text-gray-700 dark:text-gray-300">{intl.get("scheduledTasks.execution.colNextRun")}</th>
                     <th className="px-3 py-3 font-semibold text-gray-700 dark:text-gray-300">{intl.get("scheduledTasks.execution.colError")}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {rows.length === 0 ? (
                     <tr>
-                      <td colSpan={14} className="px-4 py-10 text-center text-sm text-gray-500 dark:text-gray-400">
+                      <td colSpan={13} className="px-4 py-10 text-center text-sm text-gray-500 dark:text-gray-400">
                         {intl.get("common.noData")}
                       </td>
                     </tr>
                   ) : (
-                    rows.map((r) => (
-                      <tr
-                        key={`${String(r.runId)}-${String(r.jobId)}-${String(r.startedAt ?? "")}`}
-                        className="border-b border-gray-50 transition-colors hover:bg-gray-50/80 dark:border-gray-800/80 dark:hover:bg-gray-800/40"
-                      >
-                        <td className="px-3 py-2.5 font-mono text-xs text-gray-800 dark:text-gray-200">{r.runId ?? "—"}</td>
-                        <td className="px-3 py-2.5 font-mono text-xs text-gray-800 dark:text-gray-200">{r.jobId ?? "—"}</td>
-                        <td className="max-w-[140px] truncate px-3 py-2.5 text-gray-800 dark:text-gray-200" title={r.jobName ? String(r.jobName) : ""}>
-                          {r.jobName ?? "—"}
-                        </td>
-                        <td className="max-w-[160px] truncate px-3 py-2.5 font-mono text-xs text-gray-600 dark:text-gray-400" title={r.cronExpression ?? ""}>
-                          {r.cronExpression ?? "—"}
-                        </td>
-                        <td className="max-w-[100px] truncate px-3 py-2.5 text-xs text-gray-700 dark:text-gray-300" title={r.jobSource ? String(r.jobSource) : ""}>
-                          {r.jobSource ?? "—"}
-                        </td>
-                        <td className="max-w-[120px] truncate px-3 py-2.5 font-mono text-xs text-gray-600 dark:text-gray-400" title={r.jobSessionId ? String(r.jobSessionId) : ""}>
-                          {r.jobSessionId ?? "—"}
-                        </td>
-                        <td className="max-w-[120px] truncate px-3 py-2.5 text-xs text-gray-600 dark:text-gray-400" title={r.jobWorkspace ? String(r.jobWorkspace) : ""}>
-                          {r.jobWorkspace ?? "—"}
-                        </td>
-                        <td className="whitespace-nowrap px-3 py-2.5 text-xs text-gray-700 dark:text-gray-300">{r.jobTimeoutSeconds ?? "—"}</td>
-                        <td className="max-w-[120px] truncate px-3 py-2.5 text-xs text-gray-700 dark:text-gray-300" title={r.deliveryStatus ? String(r.deliveryStatus) : ""}>
-                          {r.deliveryStatus ?? "—"}
-                        </td>
-                        <td className="px-3 py-2.5">
-                          {r.status != null && String(r.status) ? (
+                    rows.flatMap((r) => {
+                      const rowKey = `${String(r.runId)}-${String(r.jobId)}-${String(r.startedAt ?? "")}`;
+                      const drillEv = executionRunRowToRunLogDrillEvent(r);
+                      const drillOpen = Boolean(executionDrillEvent && sameRunLogEvent(executionDrillEvent, drillEv));
+                      const rowTok = extractUsageTokens(drillEv);
+                      const nextRunMs = parseNextRunAtMsFromExecutionRowRaw(r?.run_log_next_run_raw);
+                      const agentIdStr = r.agentId != null && String(r.agentId).trim() ? String(r.agentId).trim() : "";
+                      const dataRow = (
+                        <tr
+                          key={rowKey}
+                          role="button"
+                          tabIndex={0}
+                          aria-expanded={drillOpen}
+                          aria-label={`${r.jobName ? String(r.jobName) : String(r.jobId ?? "")}。${executionRowOpenHint}`}
+                          onClick={() => handleExecutionRowClick(r)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              handleExecutionRowClick(r);
+                            }
+                          }}
+                          className={[
+                            "cursor-pointer border-b border-gray-50 transition-colors hover:bg-gray-50/80 dark:border-gray-800/80 dark:hover:bg-gray-800/40",
+                            drillOpen ? "bg-primary/[0.08] ring-1 ring-inset ring-primary/15 dark:bg-primary/10" : "",
+                          ].join(" ")}
+                        >
+                          <td className="px-2 py-2.5 align-middle text-center text-gray-500 dark:text-gray-400" aria-hidden>
                             <span
                               className={[
-                                "inline-flex rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset",
-                                statusClass(r.status),
+                                "inline-flex transition-transform duration-150",
+                                drillOpen ? "rotate-0" : "-rotate-90",
                               ].join(" ")}
                             >
-                              {String(r.status)}
+                              <Icon name="chevron" className="h-4 w-4" />
                             </span>
-                          ) : (
-                            "—"
-                          )}
-                        </td>
-                        <td className="whitespace-nowrap px-3 py-2.5 text-gray-700 dark:text-gray-300">{formatDateTime(r.startedAt)}</td>
-                        <td className="whitespace-nowrap px-3 py-2.5 text-gray-700 dark:text-gray-300">{formatDateTime(r.finishedAt)}</td>
-                        <td className="whitespace-nowrap px-3 py-2.5 text-gray-700 dark:text-gray-300">{formatDuration(r.durationMs)}</td>
-                        <td className="max-w-[180px] truncate px-3 py-2.5 text-gray-600 dark:text-gray-400" title={r.errorMessage ? String(r.errorMessage) : ""}>
-                          {r.errorMessage ? String(r.errorMessage) : "—"}
-                        </td>
-                      </tr>
-                    ))
+                          </td>
+                          <td className="px-3 py-2.5 font-mono text-xs text-gray-800 dark:text-gray-200">{r.runId ?? "—"}</td>
+                          <td className="px-3 py-2.5 font-mono text-xs text-gray-800 dark:text-gray-200">{r.jobId ?? "—"}</td>
+                          <td className="max-w-[200px] px-3 py-2.5 text-gray-800 dark:text-gray-200" title={r.jobName ? String(r.jobName) : ""}>
+                            {r.jobName != null && String(r.jobName).trim() !== "" && r.jobId != null && String(r.jobId).trim() !== "" ? (
+                              <button
+                                type="button"
+                                className="max-w-full truncate text-left text-primary underline decoration-primary/40 underline-offset-2 hover:decoration-primary dark:text-primary"
+                                title={intl.get("scheduledTasks.execution.jobNameOpenTaskDetailTitle")}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openTaskDetailForJob(r.jobId);
+                                }}
+                              >
+                                {String(r.jobName)}
+                              </button>
+                            ) : (
+                              (r.jobName ?? "—")
+                            )}
+                          </td>
+                          <td className="max-w-[120px] truncate px-3 py-2.5 text-xs text-gray-700 dark:text-gray-300" title={agentIdStr || undefined}>
+                            {agentIdStr ? (
+                              <button
+                                type="button"
+                                className="max-w-full truncate text-left text-primary underline decoration-primary/40 underline-offset-2 hover:decoration-primary dark:text-primary dark:hover:text-primary"
+                                title={intl.get("scheduledTasks.taskDetail.runLog.agentOpenPortraitTitle")}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  navigateRunLogAgentToDigitalEmployeePortrait(agentIdStr, null);
+                                }}
+                              >
+                                {truncateText(agentIdStr, 28)}
+                              </button>
+                            ) : (
+                              "—"
+                            )}
+                          </td>
+                          <td className="max-w-[120px] truncate px-3 py-2.5 text-xs text-gray-700 dark:text-gray-300" title={r.deliveryStatus ? String(r.deliveryStatus) : ""}>
+                            {r.deliveryStatus ?? "—"}
+                          </td>
+                          <td className="px-3 py-2.5">
+                            {r.status != null && String(r.status) ? (
+                              <span
+                                className={[
+                                  "inline-flex rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset",
+                                  statusClass(r.status),
+                                ].join(" ")}
+                              >
+                                {String(r.status)}
+                              </span>
+                            ) : (
+                              "—"
+                            )}
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-2.5 text-gray-700 dark:text-gray-300">{formatDateTime(r.startedAt)}</td>
+                          <td className="whitespace-nowrap px-3 py-2.5 text-gray-700 dark:text-gray-300">{formatDateTime(r.finishedAt)}</td>
+                          <td className="whitespace-nowrap px-3 py-2.5 text-gray-700 dark:text-gray-300">{formatDuration(r.durationMs)}</td>
+                          <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums text-gray-800 dark:text-gray-200">{formatTokenInt(rowTok.total)}</td>
+                          <td className="whitespace-nowrap px-3 py-2.5 text-gray-700 dark:text-gray-300">{formatEpochMs(nextRunMs)}</td>
+                          <td className="max-w-[180px] truncate px-3 py-2.5 text-gray-600 dark:text-gray-400" title={r.errorMessage ? String(r.errorMessage) : ""}>
+                            {r.errorMessage ? String(r.errorMessage) : "—"}
+                          </td>
+                        </tr>
+                      );
+                      if (!drillOpen) return [dataRow];
+                      return [
+                        dataRow,
+                        <tr key={`${rowKey}-drill`} className="border-b border-gray-100 dark:border-gray-800">
+                          <td colSpan={13} className="bg-gray-50/95 px-3 pb-3 pt-1.5 align-top dark:bg-gray-900/50">
+                            <RunLogDrillPanel
+                              event={executionDrillEvent}
+                              job={null}
+                              onClose={() => setExecutionDrillEvent(null)}
+                              onNavigateToTaskDetail={onOpenTaskDetailFromExecution}
+                            />
+                          </td>
+                        </tr>,
+                      ];
+                    })
                   )}
                 </tbody>
               </table>
@@ -3265,6 +3016,25 @@ function ExecutionDetailPanel() {
 
 export default function ScheduledTasks() {
   const [mainTab, setMainTab] = useState("runOverview");
+  const [runOverviewTaskDetailJobId, setRunOverviewTaskDetailJobId] = useState(null);
+  const [runOverviewExecutionJobId, setRunOverviewExecutionJobId] = useState(null);
+
+  const openTaskDetailFromRunOverview = useCallback((jobId) => {
+    const id = String(jobId ?? "").trim();
+    if (!id) return;
+    setRunOverviewTaskDetailJobId(id);
+    setMainTab("taskDetail");
+  }, []);
+
+  const openExecutionForJobFromRunOverview = useCallback((jobId) => {
+    const id = String(jobId ?? "").trim();
+    if (!id) return;
+    setRunOverviewExecutionJobId(id);
+    setMainTab("executionDetail");
+  }, []);
+
+  const clearRunOverviewTaskPick = useCallback(() => setRunOverviewTaskDetailJobId(null), []);
+  const clearRunOverviewExecFilter = useCallback(() => setRunOverviewExecutionJobId(null), []);
 
   return (
     <div className="space-y-4">
@@ -3288,9 +3058,23 @@ export default function ScheduledTasks() {
         </nav>
       </div>
 
-      {mainTab === "runOverview" && <ScheduledTasksRunOverview />}
-      {mainTab === "taskDetail" && <TaskDetailPanel />}
-      {mainTab === "executionDetail" && <ExecutionDetailPanel />}
+      {mainTab === "runOverview" && (
+        <ScheduledTasksRunOverview
+          onNavigateToTab={setMainTab}
+          onOpenTaskDetailFromOverview={openTaskDetailFromRunOverview}
+          onOpenExecutionForJobFromOverview={openExecutionForJobFromRunOverview}
+        />
+      )}
+      {mainTab === "taskDetail" && (
+        <TaskDetailPanel runOverviewPickJobId={runOverviewTaskDetailJobId} onRunOverviewPickConsumed={clearRunOverviewTaskPick} />
+      )}
+      {mainTab === "executionDetail" && (
+        <ExecutionDetailPanel
+          runOverviewJobFilter={runOverviewExecutionJobId}
+          onRunOverviewJobFilterConsumed={clearRunOverviewExecFilter}
+          onOpenTaskDetailFromExecution={openTaskDetailFromRunOverview}
+        />
+      )}
     </div>
   );
 }

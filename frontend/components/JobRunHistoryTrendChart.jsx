@@ -9,8 +9,9 @@ import { analyzeRunHistory } from "../lib/jobRunHistoryMetrics.js";
  * @param {object[]} props.events
  * @param {boolean} [props.compact] 执行结果页等场景：不展示说明文案、不展示左侧 Y 轴「次数」名称
  * @param {number} [props.chartHeightPx] 图表区域高度（像素），默认 320
+ * @param {boolean} [props.showTitle=true] 为 false 时由外层卡片提供标题
  */
-export default function JobRunHistoryTrendChart({ events, compact = false, chartHeightPx }) {
+export default function JobRunHistoryTrendChart({ events, compact = false, chartHeightPx, showTitle = true }) {
   const h = useMemo(() => analyzeRunHistory(events), [events]);
   const chartH = chartHeightPx != null && Number.isFinite(Number(chartHeightPx)) ? Math.max(120, Math.round(Number(chartHeightPx))) : 320;
   const tightChart = compact && chartH < 280;
@@ -93,9 +94,11 @@ export default function JobRunHistoryTrendChart({ events, compact = false, chart
 
   return (
     <div>
-      <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{intl.get("scheduledTasks.taskDetail.runHistory.chartTitle")}</h3>
+      {showTitle ? (
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{intl.get("scheduledTasks.taskDetail.runHistory.chartTitle")}</h3>
+      ) : null}
       {chartOption ? (
-        <div className={`w-full min-w-0 ${compact ? "mt-2" : "mt-3"}`} style={{ height: chartH }}>
+        <div className={`w-full min-w-0 ${showTitle ? (compact ? "mt-2" : "mt-3") : "mt-2"}`} style={{ height: chartH }}>
           <ReactECharts option={chartOption} style={{ height: "100%", width: "100%" }} opts={{ renderer: "canvas" }} notMerge lazyUpdate />
         </div>
       ) : (

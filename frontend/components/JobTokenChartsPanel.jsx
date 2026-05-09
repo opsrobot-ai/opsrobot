@@ -16,8 +16,9 @@ const MODEL_PIE_COLORS = ["#3b82f6", "#a855f7", "#10b981", "#f59e0b", "#ef4444",
  * @param {object} props
  * @param {object[]} props.events
  * @param {(startDay: string, endDay: string) => void} [props.onBrushDateRange] 框选柱图后按日键 YYYY-MM-DD 回调，用于同步统计时间
+ * @param {'full' | 'trendOnly'} [props.mode='full'] trendOnly：仅展示按日 Token 堆叠趋势（任务概览等）
  */
-export default function JobTokenChartsPanel({ events, onBrushDateRange }) {
+export default function JobTokenChartsPanel({ events, onBrushDateRange, mode = "full" }) {
   const list = Array.isArray(events) ? events : [];
   const [modelFilter, setModelFilter] = useState("");
   const datesRef = useRef(/** @type {string[]} */ ([]));
@@ -212,6 +213,32 @@ export default function JobTokenChartsPanel({ events, onBrushDateRange }) {
     };
   }, [byModel, unknownModelLabel]);
 
+  const trendCard = (
+    <div className="flex min-h-[300px] min-w-0 flex-col rounded-lg border border-gray-100 bg-white p-3 dark:border-gray-800 dark:bg-gray-900/40">
+      <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{intl.get("scheduledTasks.taskDetail.tokensChartTrendTitle")}</h3>
+      <div className="mt-2 min-h-0 flex-1">
+        {barOption ? (
+          <ReactECharts
+            option={barOption}
+            style={{ height: "100%", minHeight: "260px", width: "100%" }}
+            opts={{ renderer: "canvas" }}
+            notMerge
+            lazyUpdate
+            onEvents={barChartEvents}
+          />
+        ) : (
+          <p className="flex flex-1 items-center justify-center py-12 text-center text-sm text-gray-500 dark:text-gray-400">
+            {intl.get("common.noData")}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+
+  if (mode === "trendOnly") {
+    return <div className="min-w-0">{trendCard}</div>;
+  }
+
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-3">
@@ -233,25 +260,7 @@ export default function JobTokenChartsPanel({ events, onBrushDateRange }) {
         </select>
       </div>
 
-      <div className="flex min-h-[300px] min-w-0 flex-col rounded-lg border border-gray-100 bg-white p-3 dark:border-gray-800 dark:bg-gray-900/40">
-        <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{intl.get("scheduledTasks.taskDetail.tokensChartTrendTitle")}</h3>
-        <div className="mt-2 min-h-0 flex-1">
-          {barOption ? (
-            <ReactECharts
-              option={barOption}
-              style={{ height: "100%", minHeight: "260px", width: "100%" }}
-              opts={{ renderer: "canvas" }}
-              notMerge
-              lazyUpdate
-              onEvents={barChartEvents}
-            />
-          ) : (
-            <p className="flex flex-1 items-center justify-center py-12 text-center text-sm text-gray-500 dark:text-gray-400">
-              {intl.get("common.noData")}
-            </p>
-          )}
-        </div>
-      </div>
+      {trendCard}
 
       <div className="grid gap-4 lg:grid-cols-2 lg:items-stretch">
         <div className="flex min-h-[280px] min-w-0 flex-col rounded-lg border border-gray-100 bg-white p-3 dark:border-gray-800 dark:bg-gray-900/40">

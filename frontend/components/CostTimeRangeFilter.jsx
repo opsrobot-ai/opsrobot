@@ -89,6 +89,8 @@ export default function CostTimeRangeFilter({
 
   const startValue = rangeStart ? toInputVal(rangeStart) : toInputVal(computed.start);
   const endValue = rangeEnd ? toInputVal(rangeEnd) : toInputVal(computed.end);
+  const startDisplay = startValue ? startValue.replace("T", " ") : "";
+  const endDisplay = endValue ? endValue.replace("T", " ") : "";
 
   const handleStartChange = (e) => {
     if (onRangeChange) {

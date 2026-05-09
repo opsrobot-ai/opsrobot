@@ -14,7 +14,26 @@ export function parseDateTimeLocalInput(s) {
 }
 
 /**
- * 按 `runAtMs` / `ts` 落在 [fromMs, toMs] 内过滤（与任务详情 Token/结果/性能 Tab 一致）。
+ * 单次运行事件的时间锚点（毫秒），用于按日聚合与时间窗过滤。
+ * 兼容 number、数字字符串、ISO / 常见日期字符串（与 Doris / JSON 序列化一致）。
+ * @param {object | null | undefined} ev
+ * @returns {number} 无法解析时为 NaN
+ */
+export function parseRunEventAnchorMs(ev) {
+  if (ev == null || typeof ev !== "object") return NaN;
+  const v = ev.runAtMs ?? ev.ts;
+  if (v == null) return NaN;
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  const s = String(v).trim();
+  if (s === "") return NaN;
+  const n = Number(s);
+  if (Number.isFinite(n)) return n;
+  const p = Date.parse(s);
+  return Number.isFinite(p) ? p : NaN;
+}
+
+/**
+ * 按 `runAtMs` / `ts` 落在 [fromMs, toMs] 内过滤（与任务详情「统计时间」窗口一致）。
  * @param {object[]} events
  * @param {string} rangeStartLocal
  * @param {string} rangeEndLocal
@@ -25,7 +44,7 @@ export function filterRunEventsByTimeRange(events, rangeStartLocal, rangeEndLoca
   const toMs = parseDateTimeLocalInput(rangeEndLocal);
   if (fromMs == null && toMs == null) return list;
   return list.filter((ev) => {
-    const anchor = Number(ev?.runAtMs ?? ev?.ts ?? NaN);
+    const anchor = parseRunEventAnchorMs(ev);
     if (fromMs != null && (!Number.isFinite(anchor) || anchor < fromMs)) return false;
     if (toMs != null && (!Number.isFinite(anchor) || anchor > toMs)) return false;
     return true;

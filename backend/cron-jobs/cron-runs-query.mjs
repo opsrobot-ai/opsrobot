@@ -4,17 +4,17 @@
  * 库名：`DORIS_CRON_DATABASE`（缺省与 `DORIS_DATABASE` 一致）。
  * 表名：`DORIS_CRON_JOBS_TABLE`（默认 cron_jobs）、`DORIS_CRON_RUNS_TABLE`（默认 cron_runs）。
  *
- * 默认列名（若实际 DDL 不同，请用环境变量覆盖，例如 `CRON_RUNS_COL_JOB_ID=cron_job_id`）：
+ * 默认列名（若实际 DDL 不同，请用环境变量覆盖，例如 `CRON_RUNS_COL_JOB_ID=jobid` / `cron_job_id`）：
  * - cron_jobs: id, name；Cron 表达式列名未设置 `CRON_JOBS_COL_CRON` 时，会按序探测
  *   schedule / cron_expression / cron / cron_expr / cronspec / spec / expression，均无则 SELECT NULL。
  *   也可显式设置 `CRON_JOBS_COL_CRON=你的列名`，或 `CRON_JOBS_COL_CRON=__omit__` 固定不查该列。
- * - `cron_jobs.log_attributes`：`CRON_JOBS_COL_LOG_ATTRIBUTES`（默认 `log_attributes`）；存在时按
+ * - `cron_jobs` 扩展 JSON：`CRON_JOBS_COL_LOG_ATTRIBUTES`；未设置时按序探测 `log_attributes`、`logattributes` 等；存在时按
  *   `docs/datamodel/cron_runs.md`（字段表）与 `docs/datamodel/cron_jobs.md`：`GET_JSON_STRING` 提取 job_source、trace_id 等到 API 标量字段（不返回整包 JSON 字符串）。
  *   **GET /api/cron-jobs 任务概览**：`display_name` 等键补 **名称**；`agent_id`、`session_key`、`schedule_tz` 等补 **基本信息 / schedule.tz**；
  *   **负载 `payload`**：优先从 **`log_attributes.payload`** 嵌套对象取 `kind` / `model` / `message`（及 `type`、`body` 等别名），再回落顶层扁平键 `$.payload_kind` 等。
  *   `total_lines`、`ok_count`、`fail_count`、`avg_duration_ms`、`total_tokens_sum`、`last_success_at_ms` 等补 **listRunSummary（卡片汇总）**——有值则**优先于** `cron_runs` 聚合。
  *   **最近执行**（`jobs[].state` 与 `listRunSummary.lastRunTokensTotal`）：优先 **`log_attributes.state`** 嵌套（如 `$.state.last_run_at_ms`），再回落顶层同名键，最后才用 `cron_runs` **最近一行**。
- *   **物理列**：若存在 `agent_id` / `digital_employee_id` 等（或 `CRON_JOBS_COL_AGENT_ID`）、`description` 等（或 `CRON_JOBS_COL_DESCRIPTION`），一并 SELECT 并与 JSON 路径合并（列优先于同名 JSON）。
+ *   **物理列**：若存在 `agent_id` / `agentid` / `digital_employee_id` 等（或 `CRON_JOBS_COL_AGENT_ID`）、`description` 等（或 `CRON_JOBS_COL_DESCRIPTION`），一并 SELECT 并与 JSON 路径合并（列优先于同名 JSON）。
  * - `cron_runs.log_attributes`（可选）：`CRON_RUNS_COL_LOG_ATTRIBUTES`（默认 `log_attributes`）；存在时与任务表一起参与 **`deliveryStatus`** 解析，**优先取执行行**再回落到任务行。
  *   **运行日志「产出摘要」**：`events[].summary` 从 **`cron_runs.log_attributes`** 读取 **`$.summary`**（并兼容 `$.output_summary`、`$.result_summary` 等别名）。
  *   同一列上按 `GET_JSON_STRING` 提取 **Token 用量**（写入 `events[].usage` 与列表 `listRunSummary`），路径兼容：
@@ -67,7 +67,7 @@ function jobColumnRefs() {
 }
 
 const RUNS_ID_CANDIDATES = ["id", "run_id", "pk"];
-const RUNS_JOB_FK_CANDIDATES = ["job_id", "cron_job_id", "task_id"];
+const RUNS_JOB_FK_CANDIDATES = ["job_id", "jobid", "cron_job_id", "task_id"];
 const RUNS_STATUS_CANDIDATES = ["status", "state", "result", "run_status"];
 const RUNS_STARTED_CANDIDATES = [
   "started_at",
@@ -111,7 +111,10 @@ const RUNS_ERROR_CANDIDATES = [
 ];
 
 /** `cron_runs` 上扩展 JSON 列名探测（与 `cron_jobs.log_attributes` 语义类似） */
-const RUNS_LOG_ATTRIBUTES_CANDIDATES = ["log_attributes", "run_log_attributes", "ext_attrs"];
+const RUNS_LOG_ATTRIBUTES_CANDIDATES = ["log_attributes", "logattributes", "run_log_attributes", "ext_attrs"];
+
+/** `cron_jobs` 上扩展 JSON 列（部分 Doris 表为无下划线 `logattributes`，见 docs/datamodel） */
+const JOBS_LOG_ATTRIBUTES_CANDIDATES = ["log_attributes", "logattributes", "run_log_attributes", "ext_attrs"];
 
 /** @param {Set<string>} fieldSet */
 function firstMatchingColumn(fieldSet, candidates) {
@@ -119,6 +122,19 @@ function firstMatchingColumn(fieldSet, candidates) {
     if (fieldSet.has(c)) return c;
   }
   return null;
+}
+
+/**
+ * @param {Set<string>} jobsCols
+ * @returns {string | null}
+ */
+function pickJobsLogAttributesColumn(jobsCols) {
+  const env = process.env.CRON_JOBS_COL_LOG_ATTRIBUTES;
+  if (env != null && String(env).trim()) {
+    const c = sanitizeIdent(String(env).trim(), "log_attributes");
+    return jobsCols.has(c) ? c : null;
+  }
+  return firstMatchingColumn(jobsCols, JOBS_LOG_ATTRIBUTES_CANDIDATES);
 }
 
 /**
@@ -164,10 +180,14 @@ function coalesceExistingCol(fieldSet, col, alternates, lastResort) {
  */
 function inferRunsTemporalKind(fieldTypes, colName, fieldSet) {
   if (!colName || !fieldSet.has(colName)) return "datetime";
+  const cn = String(colName).toLowerCase();
+  // cron_runs 文档：ts 为毫秒时间戳；避免 SHOW COLUMNS 的 Type 在部分 Doris 版本下为空或非整型描述时误判为 DATETIME，
+  // 进而对 BIGINT 使用 DATE_FORMAT(列) 触发 Nereids 解析异常。
+  if (cn === "ts") return "unix_ms";
   const tp = String(fieldTypes.get(colName) ?? "").toLowerCase();
   if (tp.includes("datetime") || tp.includes("timestamp") || /\bdate\b/.test(tp)) return "datetime";
-  if (tp.includes("bigint") || tp.includes("int(") || tp === "int" || tp.includes("integer")) return "unix_ms";
-  if (colName === "ts") return "unix_ms";
+  if (tp.includes("bigint") || tp.includes("largeint") || tp.includes("int(") || tp === "int" || tp.includes("integer"))
+    return "unix_ms";
   return "datetime";
 }
 
@@ -246,6 +266,20 @@ function runsStartedSelectSqlAsStartedAt(C) {
     return `FROM_UNIXTIME(CAST(r.\`${c}\` AS BIGINT) / 1000) AS started_at`;
   }
   return `r.\`${c}\` AS started_at`;
+}
+
+/**
+ * 运行开始时刻的 DATETIME 表达式（无别名），供 `MAX(...)` 等与 `runsStartedSelectSqlAsStartedAt` 对齐。
+ * @param {{ runsStarted: string, runsStartedTemporal: "unix_ms" | "datetime" }} C
+ * @param {string} [tableAlias]
+ */
+function runsStartedDatetimeExpr(C, tableAlias = "r") {
+  const c = C.runsStarted;
+  const a = tableAlias;
+  if (C.runsStartedTemporal === "unix_ms") {
+    return `FROM_UNIXTIME(CAST(${a}.\`${c}\` AS BIGINT) / 1000)`;
+  }
+  return `${a}.\`${c}\``;
 }
 
 /**
@@ -439,8 +473,8 @@ function coalesceGetJsonStringPaths(castLa, paths) {
  */
 async function resolveJobsLogAttributesSelectSql(conn) {
   const jobsCols = await getCronJobsColumnSet(conn);
-  const laName = sanitizeIdent(process.env.CRON_JOBS_COL_LOG_ATTRIBUTES, "log_attributes");
-  if (!jobsCols.has(laName)) {
+  const laName = pickJobsLogAttributesColumn(jobsCols);
+  if (!laName) {
     return {
       sql: [
         "NULL AS job_source",
@@ -724,6 +758,39 @@ function buildRunsLogAttributesTokenSelectSql(runsLogAttributesColumn) {
 }
 
 /**
+ * 失败原因分布：与 `buildRunsLogAttributesTokenSelectSql` 中 error 路径一致，
+ * 优先物理错误列，再回落 `cron_runs.log_attributes` 内 JSON。
+ * 返回合并后的标量表达式（不含 SUBSTRING），便于外层包一层再 GROUP BY。
+ * @param {{ runsError?: string | null, runsLogAttributesColumn?: string | null }} C
+ * @returns {string | null}
+ */
+function buildFailureReasonMergedExprForAgg(C) {
+  /** @type {string[]} */
+  const coalesceParts = [];
+  if (C.runsError && String(C.runsError).trim()) {
+    const errCol = sanitizeIdent(C.runsError, "error_message");
+    coalesceParts.push(`NULLIF(TRIM(CAST(r.\`${errCol}\` AS STRING)), '')`);
+  }
+  if (C.runsLogAttributesColumn) {
+    const id = sanitizeIdent(C.runsLogAttributesColumn, "log_attributes");
+    const castRun = `CAST(r.\`${id}\` AS STRING)`;
+    const errorPaths = [
+      "$.error",
+      "$.error_message",
+      "$.errorMessage",
+      "$.failure_reason",
+      "$.err_msg",
+      "$.exception",
+    ];
+    coalesceParts.push(
+      `COALESCE(${errorPaths.map((p) => `NULLIF(TRIM(GET_JSON_STRING(${castRun}, '${p}')), '')`).join(", ")})`,
+    );
+  }
+  if (!coalesceParts.length) return null;
+  return coalesceParts.length === 1 ? coalesceParts[0] : `COALESCE(${coalesceParts.join(", ")})`;
+}
+
+/**
  * Doris 聚合：单行 log_attributes 上「有效总 Token」表达式（无列时为 NULL）。
  * @param {string | null} runsLogAttributesColumn
  */
@@ -742,6 +809,44 @@ function buildRunsLogAttributesEffectiveTotalSql(runsLogAttributesColumn) {
     WHEN NULLIF(TRIM(${inCoalesce}), '') IS NOT NULL OR NULLIF(TRIM(${outCoalesce}), '') IS NOT NULL
       THEN CAST(COALESCE(NULLIF(TRIM(${inCoalesce}), ''), '0') AS DOUBLE)
          + CAST(COALESCE(NULLIF(TRIM(${outCoalesce}), ''), '0') AS DOUBLE)
+    ELSE NULL
+  END
+)`;
+}
+
+/**
+ * Doris 聚合：单行 log_attributes 上「有效输入 Token」表达式（无列时为 NULL）。
+ * @param {string | null} runsLogAttributesColumn
+ */
+function buildRunsLogAttributesEffectiveInputSql(runsLogAttributesColumn) {
+  if (!runsLogAttributesColumn) return "CAST(NULL AS DOUBLE)";
+  const id = sanitizeIdent(runsLogAttributesColumn, "log_attributes");
+  const c = `CAST(r.\`${id}\` AS STRING)`;
+  const g = (p) => `NULLIF(TRIM(GET_JSON_STRING(${c}, '${p}')), '')`;
+  const inCoalesce = `COALESCE(${["$.usage.input_tokens", "$.usage.prompt_tokens", "$.input_tokens", "$.prompt_tokens"].map((p) => g(p)).join(", ")})`;
+  return `(
+  CASE
+    WHEN NULLIF(TRIM(${inCoalesce}), '') IS NOT NULL
+      THEN CAST(NULLIF(TRIM(${inCoalesce}), '') AS DOUBLE)
+    ELSE NULL
+  END
+)`;
+}
+
+/**
+ * Doris 聚合：单行 log_attributes 上「有效输出 Token」表达式（无列时为 NULL）。
+ * @param {string | null} runsLogAttributesColumn
+ */
+function buildRunsLogAttributesEffectiveOutputSql(runsLogAttributesColumn) {
+  if (!runsLogAttributesColumn) return "CAST(NULL AS DOUBLE)";
+  const id = sanitizeIdent(runsLogAttributesColumn, "log_attributes");
+  const c = `CAST(r.\`${id}\` AS STRING)`;
+  const g = (p) => `NULLIF(TRIM(GET_JSON_STRING(${c}, '${p}')), '')`;
+  const outCoalesce = `COALESCE(${["$.usage.output_tokens", "$.usage.completion_tokens", "$.output_tokens", "$.completion_tokens"].map((p) => g(p)).join(", ")})`;
+  return `(
+  CASE
+    WHEN NULLIF(TRIM(${outCoalesce}), '') IS NOT NULL
+      THEN CAST(NULLIF(TRIM(${outCoalesce}), '') AS DOUBLE)
     ELSE NULL
   END
 )`;
@@ -921,6 +1026,7 @@ function durationMs(startedAt, finishedAt) {
  *   agentId?: string | null,
  *   status?: string | null,
  *   q?: string | null,
+ *   jobName?: string | null,
  * }} opts
  */
 export async function queryCronRunsPage(opts = {}) {
@@ -935,6 +1041,7 @@ export async function queryCronRunsPage(opts = {}) {
   const agentIdFilter = opts.agentId != null && String(opts.agentId).trim() ? String(opts.agentId).trim() : null;
   const statusFilter = opts.status != null && String(opts.status).trim() ? String(opts.status).trim().toLowerCase() : "";
   const qRaw = opts.q != null && String(opts.q).trim() ? String(opts.q).trim().slice(0, 200) : "";
+  const jobNameRaw = opts.jobName != null && String(opts.jobName).trim() ? String(opts.jobName).trim().slice(0, 200) : "";
 
   const T = tableRefs();
 
@@ -967,9 +1074,10 @@ export async function queryCronRunsPage(opts = {}) {
     if (agentIdFilter) {
       const agentColRaw = pickJobsAgentIdColumn(jobsCols);
       const agentCol = agentColRaw ? sanitizeIdent(agentColRaw, "agent_id") : null;
-      const laName = sanitizeIdent(process.env.CRON_JOBS_COL_LOG_ATTRIBUTES, "log_attributes");
-      const castLa = `CAST(j.\`${laName}\` AS STRING)`;
-      const jsonAgent = coalesceGetJsonStringPaths(castLa, ["$.agent_id", "$.agentId"]);
+      const laCol = jobsLaSel.column;
+      const jsonAgent = laCol
+        ? coalesceGetJsonStringPaths(`CAST(j.\`${laCol}\` AS STRING)`, ["$.agent_id", "$.agentId"])
+        : `CAST(NULL AS STRING)`;
       if (agentCol) {
         whereParts.push(
           `LOWER(TRIM(COALESCE(NULLIF(TRIM(CAST(j.\`${agentCol}\` AS STRING)), ''), NULLIF(TRIM(${jsonAgent}), '')))) = LOWER(?)`,
@@ -1008,17 +1116,29 @@ export async function queryCronRunsPage(opts = {}) {
       if (C.runsError && String(C.runsError).trim()) params.push(like);
     }
 
+    if (jobNameRaw) {
+      const like = `%${jobNameRaw.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_")}%`;
+      whereParts.push(`LOWER(CAST(j.\`${C.jobsName}\` AS STRING)) LIKE LOWER(?)`);
+      params.push(like);
+    }
+
     const whereSql = `WHERE ${whereParts.join(" AND ")}`;
 
-    const countSql = `SELECT COUNT(*) AS c FROM ${T.runs} r ${whereSql}`;
+    const countSql = `SELECT COUNT(*) AS c FROM ${T.runs} r LEFT JOIN ${T.jobs} j ON j.\`${C.jobsId}\` = r.\`${C.runsJobFk}\` ${whereSql}`;
     const [[countRow]] = await conn.query(countSql, params);
     const total = Number(normScalar(countRow?.c)) || 0;
+
+    const agentIdColPick = pickJobsAgentIdColumn(jobsCols);
+    const agentIdSelect = agentIdColPick
+      ? `NULLIF(TRIM(CAST(j.\`${sanitizeIdent(agentIdColPick, "agent_id")}\` AS STRING)), '') AS job_agent_id_col`
+      : `CAST(NULL AS STRING) AS job_agent_id_col`;
 
     const listSql = `
 SELECT
   r.\`${C.runsId}\` AS run_id,
   r.\`${C.runsJobFk}\` AS job_id,
   j.\`${C.jobsName}\` AS job_name,
+  ${agentIdSelect},
   ${cronSel.sql},
   ${jobsLaSel.sql},
   ${deliveryStatusSql} AS delivery_status,
@@ -1072,6 +1192,11 @@ LIMIT ${Number(pageSize)} OFFSET ${Number(offset)}
         run_log_next_run_raw: row.run_log_next_run_raw,
         run_log_error_raw: row.run_log_error_raw,
         run_log_summary_raw: row.run_log_summary_raw,
+        job_agent_id_col: normScalar(row.job_agent_id_col ?? row.JOB_AGENT_ID_COL),
+        job_agent_id_raw: row.job_agent_id_raw ?? row.JOB_AGENT_ID_RAW,
+        agentId:
+          firstNonEmptyTrimmedString(row.job_agent_id_col ?? row.JOB_AGENT_ID_COL, row.job_agent_id_raw ?? row.JOB_AGENT_ID_RAW) ??
+          null,
       };
     });
 
@@ -1244,10 +1369,53 @@ export async function queryCronRunsRunOverviewCharts(opts = {}) {
   });
 
   try {
+    /** 便于定位 Doris 500：错误信息带步骤标签 */
+    const runOverviewSql = async (label, sql, p) => {
+      try {
+        return await conn.query(sql, p);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        throw new Error(`[cron-runs-run-overview:${label}] ${msg}`);
+      }
+    };
+
     const C = await resolveRunsColumnRefs(conn);
     const effDurSql = buildRunEffectiveDurationMsExprForAgg(C, C.runsLogAttributesColumn ?? null);
     const tokenEffSql = buildRunsLogAttributesEffectiveTotalSql(C.runsLogAttributesColumn ?? null);
+    const tokenInEffSql = buildRunsLogAttributesEffectiveInputSql(C.runsLogAttributesColumn ?? null);
+    const tokenOutEffSql = buildRunsLogAttributesEffectiveOutputSql(C.runsLogAttributesColumn ?? null);
     const stLower = runsStatusLowerExpr(C);
+
+    const jobsCols = await getCronJobsColumnSet(conn);
+    const jobAgentIdCol = pickJobsAgentIdColumn(jobsCols);
+    const jobAgentNameCol = pickJobsAgentNameColumn(jobsCols);
+    const jobsLaName = pickJobsLogAttributesColumn(jobsCols);
+    const hasJobsLa = jobsLaName != null;
+    /** `cron_jobs` 侧 Agent 标识：物理列优先，回退 log_attributes（与 queryCronRunsOverviewMetrics 一致） */
+    const jobAgentExpr = (() => {
+      /** @type {string[]} */
+      const parts = [];
+      if (jobAgentIdCol) {
+        parts.push(`NULLIF(TRIM(CAST(j.\`${sanitizeIdent(jobAgentIdCol, "agent_id")}\` AS STRING)), '')`);
+      }
+      if (hasJobsLa) {
+        const castLa = `CAST(j.\`${jobsLaName}\` AS STRING)`;
+        parts.push(coalesceGetJsonStringPaths(castLa, ["$.agent_id", "$.agentId"]));
+      }
+      return parts.length ? `COALESCE(${parts.join(", ")})` : "CAST(NULL AS STRING)";
+    })();
+    const jobAgentNameExpr = (() => {
+      /** @type {string[]} */
+      const parts = [];
+      if (jobAgentNameCol) {
+        parts.push(`NULLIF(TRIM(CAST(j.\`${sanitizeIdent(jobAgentNameCol, "agent_name")}\` AS STRING)), '')`);
+      }
+      if (hasJobsLa) {
+        const castLa = `CAST(j.\`${jobsLaName}\` AS STRING)`;
+        parts.push(coalesceGetJsonStringPaths(castLa, ["$.agentName", "$.agentDisplayName", "$.displayName", "$.agentLabel"]));
+      }
+      return parts.length ? `COALESCE(${parts.join(", ")})` : "CAST(NULL AS STRING)";
+    })();
 
     const whereParts = ["1=1"];
     const params = [];
@@ -1267,20 +1435,50 @@ export async function queryCronRunsRunOverviewCharts(opts = {}) {
     const avgDur = `AVG(CASE WHEN (${effDurSql}) IS NOT NULL THEN (${effDurSql}) END)`;
     const dayExpr = runsStartedDayBucketExpr(C);
 
+    // 避免 Doris Nereids 对「GROUP BY 1 / ORDER BY 1」在复杂首列表达式上出现 expr=null（arity NPE）
     const trendSql = `
 SELECT
   ${dayExpr} AS bucket_day,
   COUNT(*) AS total_count,
   ${okSum} AS success_count,
   ${failSum} AS failure_count,
-  ${avgDur} AS avg_duration_ms
+  ${avgDur} AS avg_duration_ms,
+  SUM(COALESCE((${tokenInEffSql}), 0)) AS input_tokens,
+  SUM(COALESCE((${tokenOutEffSql}), 0)) AS output_tokens
 FROM ${T.runs} r
 ${whereSql}
-GROUP BY 1
-ORDER BY 1 ASC
+GROUP BY ${dayExpr}
+ORDER BY ${dayExpr} ASC
 `;
 
-    const [trendRaw] = await conn.query(trendSql, [...params]);
+    const [trendRaw] = await runOverviewSql("trend", trendSql, [...params]);
+    /** 按日 × 任务聚合 Token（输入+输出），供「Token 趋势」按定时任务堆叠 */
+    const tokenTrendByJobSql = `
+SELECT
+  ${dayExpr} AS bucket_day,
+  r.\`${C.runsJobFk}\` AS job_id,
+  MAX(j.\`${J.jobsName}\`) AS job_name,
+  SUM(COALESCE((${tokenInEffSql}), 0) + COALESCE((${tokenOutEffSql}), 0)) AS total_tokens
+FROM ${T.runs} r
+LEFT JOIN ${T.jobs} j ON j.\`${J.jobsId}\` = r.\`${C.runsJobFk}\`
+${whereSql}
+GROUP BY ${dayExpr}, r.\`${C.runsJobFk}\`
+ORDER BY bucket_day ASC
+`;
+    const [tokenTrendByJobRaw] = await runOverviewSql("tokenTrendByJob", tokenTrendByJobSql, [...params]);
+    const tokenTrendByJob = (Array.isArray(tokenTrendByJobRaw) ? tokenTrendByJobRaw : []).map((row) => ({
+      day:
+        normScalar(row.bucket_day ?? row.BUCKET_DAY) != null
+          ? String(normScalar(row.bucket_day ?? row.BUCKET_DAY))
+          : "",
+      jobId: normScalar(row.job_id ?? row.JOB_ID) != null ? String(normScalar(row.job_id ?? row.JOB_ID)) : "",
+      jobName: normScalar(row.job_name ?? row.JOB_NAME) != null ? String(normScalar(row.job_name ?? row.JOB_NAME)) : "",
+      totalTokens:
+        (row.total_tokens ?? row.TOTAL_TOKENS) != null && Number.isFinite(Number(row.total_tokens ?? row.TOTAL_TOKENS))
+          ? Math.floor(Number(row.total_tokens ?? row.TOTAL_TOKENS))
+          : 0,
+    }));
+
     const trend = (Array.isArray(trendRaw) ? trendRaw : []).map((row) => ({
       day:
         normScalar(row.bucket_day ?? row.BUCKET_DAY) != null
@@ -1294,6 +1492,16 @@ ORDER BY 1 ASC
         Number.isFinite(Number(row.avg_duration_ms ?? row.AVG_DURATION_MS))
           ? Math.round(Number(row.avg_duration_ms ?? row.AVG_DURATION_MS))
           : null,
+      inputTokens:
+        (row.input_tokens ?? row.INPUT_TOKENS) != null &&
+        Number.isFinite(Number(row.input_tokens ?? row.INPUT_TOKENS))
+          ? Math.floor(Number(row.input_tokens ?? row.INPUT_TOKENS))
+          : 0,
+      outputTokens:
+        (row.output_tokens ?? row.OUTPUT_TOKENS) != null &&
+        Number.isFinite(Number(row.output_tokens ?? row.OUTPUT_TOKENS))
+          ? Math.floor(Number(row.output_tokens ?? row.OUTPUT_TOKENS))
+          : 0,
     }));
 
     /** 任务状态分布：`distribution` 为时间窗内各 run 的成功/失败笔数（与 SUCCESS_STATUSES_SQL / FAIL_STATUSES_SQL 一致；其余状态不计入二者）。 */
@@ -1307,7 +1515,7 @@ FROM ${T.runs} r
 ${whereSql}
 `;
       try {
-        const [rodRaw] = await conn.query(runOutcomeDistSql, [...params]);
+        const [rodRaw] = await runOverviewSql("runOutcomeDist", runOutcomeDistSql, [...params]);
         const rod = Array.isArray(rodRaw) ? rodRaw[0] : null;
         if (rod) {
           distribution = {
@@ -1320,32 +1528,86 @@ ${whereSql}
       }
     }
 
+    const startedDtExpr = runsStartedDatetimeExpr(C, "r");
+    const slowStatusSql =
+      C.runsStatus && String(C.runsStatus).trim()
+        ? `r.\`${sanitizeIdent(C.runsStatus, "status")}\` AS run_status`
+        : `CAST(NULL AS STRING) AS run_status`;
     const slowSql = `
+WITH ranked AS (
+  SELECT
+    r.\`${C.runsJobFk}\` AS job_id,
+    j.\`${J.jobsName}\` AS job_name,
+    ${jobAgentExpr} AS job_agent_id,
+    ${jobAgentNameExpr} AS job_agent_name,
+    (${effDurSql}) AS eff_ms,
+    ${startedDtExpr} AS started_at,
+    ${slowStatusSql},
+    r.\`${C.runsId}\` AS run_pk
+  FROM ${T.runs} r
+  LEFT JOIN ${T.jobs} j ON j.\`${J.jobsId}\` = r.\`${C.runsJobFk}\`
+  ${whereSql}
+),
+picked AS (
+  SELECT
+    job_id,
+    job_name,
+    job_agent_id,
+    job_agent_name,
+    eff_ms AS max_duration_ms,
+    started_at AS max_duration_run_started_at,
+    run_status AS max_duration_run_status,
+    ROW_NUMBER() OVER (PARTITION BY job_id ORDER BY eff_ms DESC, started_at DESC, run_pk DESC) AS rn
+  FROM ranked
+  WHERE eff_ms IS NOT NULL
+)
 SELECT
-  r.\`${C.runsJobFk}\` AS job_id,
-  MAX(j.\`${J.jobsName}\`) AS job_name,
-  MAX((${effDurSql})) AS max_duration_ms
-FROM ${T.runs} r
-LEFT JOIN ${T.jobs} j ON j.\`${J.jobsId}\` = r.\`${C.runsJobFk}\`
-${whereSql}
-GROUP BY r.\`${C.runsJobFk}\`
+  job_id,
+  job_name,
+  job_agent_id,
+  job_agent_name,
+  max_duration_ms,
+  max_duration_run_started_at,
+  max_duration_run_status
+FROM picked
+WHERE rn = 1
 ORDER BY max_duration_ms DESC
 LIMIT 10
 `;
-    const [slowRaw] = await conn.query(slowSql, [...params]);
-    const slowTop10 = (Array.isArray(slowRaw) ? slowRaw : []).map((row) => ({
-      jobId: normScalar(row.job_id) != null ? String(normScalar(row.job_id)) : "",
-      jobName: normScalar(row.job_name) != null ? String(normScalar(row.job_name)) : "",
-      maxDurationMs:
-        row.max_duration_ms != null && Number.isFinite(Number(row.max_duration_ms))
-          ? Math.floor(Number(row.max_duration_ms))
-          : null,
-    }));
+    const [slowRaw] = await runOverviewSql("slowTop10", slowSql, [...params]);
+    const slowTop10 = (Array.isArray(slowRaw) ? slowRaw : []).map((row) => {
+      const startedRaw = row.max_duration_run_started_at ?? row.MAX_DURATION_RUN_STARTED_AT;
+      const startedNorm = normScalar(startedRaw);
+      const stRaw = row.max_duration_run_status ?? row.MAX_DURATION_RUN_STATUS;
+      const stNorm = normScalar(stRaw);
+      return {
+        jobId: normScalar(row.job_id) != null ? String(normScalar(row.job_id)) : "",
+        jobName: normScalar(row.job_name) != null ? String(normScalar(row.job_name)) : "",
+        jobAgentId:
+          normScalar(row.job_agent_id ?? row.JOB_AGENT_ID) != null
+            ? String(normScalar(row.job_agent_id ?? row.JOB_AGENT_ID))
+            : null,
+        jobAgentName: (() => {
+          const v = normScalar(row.job_agent_name ?? row.JOB_AGENT_NAME);
+          if (v == null) return null;
+          const s = String(v).trim();
+          return s || null;
+        })(),
+        maxDurationMs:
+          row.max_duration_ms != null && Number.isFinite(Number(row.max_duration_ms))
+            ? Math.floor(Number(row.max_duration_ms))
+            : null,
+        maxDurationRunStartedAt: startedNorm != null ? String(startedNorm) : null,
+        maxDurationRunStatus: stNorm != null ? String(stNorm) : null,
+      };
+    });
 
     const runCountTopSql = `
 SELECT
   r.\`${C.runsJobFk}\` AS job_id,
   MAX(j.\`${J.jobsName}\`) AS job_name,
+  MAX(${jobAgentExpr}) AS job_agent_id,
+  MAX(${jobAgentNameExpr}) AS job_agent_name,
   COUNT(*) AS run_count
 FROM ${T.runs} r
 LEFT JOIN ${T.jobs} j ON j.\`${J.jobsId}\` = r.\`${C.runsJobFk}\`
@@ -1354,10 +1616,20 @@ GROUP BY r.\`${C.runsJobFk}\`
 ORDER BY run_count DESC
 LIMIT 10
 `;
-    const [runCountRaw] = await conn.query(runCountTopSql, [...params]);
+    const [runCountRaw] = await runOverviewSql("jobTop10RunCount", runCountTopSql, [...params]);
     const jobTop10ByRunCount = (Array.isArray(runCountRaw) ? runCountRaw : []).map((row) => ({
       jobId: normScalar(row.job_id) != null ? String(normScalar(row.job_id)) : "",
       jobName: normScalar(row.job_name) != null ? String(normScalar(row.job_name)) : "",
+      jobAgentId:
+        normScalar(row.job_agent_id ?? row.JOB_AGENT_ID) != null
+          ? String(normScalar(row.job_agent_id ?? row.JOB_AGENT_ID))
+          : null,
+      jobAgentName: (() => {
+        const v = normScalar(row.job_agent_name ?? row.JOB_AGENT_NAME);
+        if (v == null) return null;
+        const s = String(v).trim();
+        return s || null;
+      })(),
       runCount: Number(normScalar(row.run_count ?? row.RUN_COUNT)) || 0,
     }));
 
@@ -1365,6 +1637,8 @@ LIMIT 10
 SELECT
   r.\`${C.runsJobFk}\` AS job_id,
   MAX(j.\`${J.jobsName}\`) AS job_name,
+  MAX(${jobAgentExpr}) AS job_agent_id,
+  MAX(${jobAgentNameExpr}) AS job_agent_name,
   ${failSum} AS failure_count,
   COUNT(*) AS run_count
 FROM ${T.runs} r
@@ -1374,19 +1648,31 @@ GROUP BY r.\`${C.runsJobFk}\`
 ORDER BY failure_count DESC
 LIMIT 10
 `;
-    const [failCountRaw] = await conn.query(failCountTopSql, [...params]);
+    const [failCountRaw] = await runOverviewSql("jobTop10FailCount", failCountTopSql, [...params]);
     const jobTop10ByFailCount = (Array.isArray(failCountRaw) ? failCountRaw : []).map((row) => ({
       jobId: normScalar(row.job_id) != null ? String(normScalar(row.job_id)) : "",
       jobName: normScalar(row.job_name) != null ? String(normScalar(row.job_name)) : "",
+      jobAgentId:
+        normScalar(row.job_agent_id ?? row.JOB_AGENT_ID) != null
+          ? String(normScalar(row.job_agent_id ?? row.JOB_AGENT_ID))
+          : null,
+      jobAgentName: (() => {
+        const v = normScalar(row.job_agent_name ?? row.JOB_AGENT_NAME);
+        if (v == null) return null;
+        const s = String(v).trim();
+        return s || null;
+      })(),
       failureCount: Number(normScalar(row.failure_count ?? row.FAILURE_COUNT)) || 0,
       runCount: Number(normScalar(row.run_count ?? row.RUN_COUNT)) || 0,
     }));
 
     const avgDurTopSql = `
-SELECT job_id, job_name, avg_duration_ms FROM (
+SELECT job_id, job_name, job_agent_id, job_agent_name, avg_duration_ms FROM (
 SELECT
   r.\`${C.runsJobFk}\` AS job_id,
   MAX(j.\`${J.jobsName}\`) AS job_name,
+  MAX(${jobAgentExpr}) AS job_agent_id,
+  MAX(${jobAgentNameExpr}) AS job_agent_name,
   AVG(CASE WHEN (${effDurSql}) IS NOT NULL THEN (${effDurSql}) END) AS avg_duration_ms
 FROM ${T.runs} r
 LEFT JOIN ${T.jobs} j ON j.\`${J.jobsId}\` = r.\`${C.runsJobFk}\`
@@ -1397,10 +1683,20 @@ WHERE t.avg_duration_ms IS NOT NULL
 ORDER BY t.avg_duration_ms DESC
 LIMIT 10
 `;
-    const [avgDurRaw] = await conn.query(avgDurTopSql, [...params]);
+    const [avgDurRaw] = await runOverviewSql("jobTop10AvgDur", avgDurTopSql, [...params]);
     const jobTop10ByAvgDurationMs = (Array.isArray(avgDurRaw) ? avgDurRaw : []).map((row) => ({
       jobId: normScalar(row.job_id) != null ? String(normScalar(row.job_id)) : "",
       jobName: normScalar(row.job_name) != null ? String(normScalar(row.job_name)) : "",
+      jobAgentId:
+        normScalar(row.job_agent_id ?? row.JOB_AGENT_ID) != null
+          ? String(normScalar(row.job_agent_id ?? row.JOB_AGENT_ID))
+          : null,
+      jobAgentName: (() => {
+        const v = normScalar(row.job_agent_name ?? row.JOB_AGENT_NAME);
+        if (v == null) return null;
+        const s = String(v).trim();
+        return s || null;
+      })(),
       avgDurationMs:
         row.avg_duration_ms != null && Number.isFinite(Number(row.avg_duration_ms))
           ? Math.round(Number(row.avg_duration_ms))
@@ -1412,6 +1708,8 @@ SELECT * FROM (
 SELECT
   r.\`${C.runsJobFk}\` AS job_id,
   MAX(j.\`${J.jobsName}\`) AS job_name,
+  MAX(${jobAgentExpr}) AS job_agent_id,
+  MAX(${jobAgentNameExpr}) AS job_agent_name,
   COUNT(*) AS run_count,
   ${okSum} AS success_count,
   ${failSum} AS failure_count
@@ -1424,7 +1722,7 @@ WHERE t.run_count >= 5
 ORDER BY CAST(t.success_count AS DOUBLE) / CAST(t.run_count AS DOUBLE) DESC, t.run_count DESC
 LIMIT 10
 `;
-    const [successRateRaw] = await conn.query(successRateTopSql, [...params]);
+    const [successRateRaw] = await runOverviewSql("jobTop10SuccessRate", successRateTopSql, [...params]);
     const jobTop10BySuccessRate = (Array.isArray(successRateRaw) ? successRateRaw : []).map((row) => {
       const runCnt = Number(normScalar(row.run_count ?? row.RUN_COUNT)) || 0;
       const succ = Number(normScalar(row.success_count ?? row.SUCCESS_COUNT)) || 0;
@@ -1434,6 +1732,16 @@ LIMIT 10
       return {
         jobId: normScalar(row.job_id) != null ? String(normScalar(row.job_id)) : "",
         jobName: normScalar(row.job_name) != null ? String(normScalar(row.job_name)) : "",
+        jobAgentId:
+          normScalar(row.job_agent_id ?? row.JOB_AGENT_ID) != null
+            ? String(normScalar(row.job_agent_id ?? row.JOB_AGENT_ID))
+            : null,
+        jobAgentName: (() => {
+          const v = normScalar(row.job_agent_name ?? row.JOB_AGENT_NAME);
+          if (v == null) return null;
+          const s = String(v).trim();
+          return s || null;
+        })(),
         runCount: runCnt,
         successCount: succ,
         failureCount: fail,
@@ -1441,11 +1749,100 @@ LIMIT 10
       };
     });
 
+    const tokenLastStartedExpr = runsStartedDatetimeExpr(C, "r");
+    /** 单段聚合：避免 WITH+嵌套 ROW_NUMBER 在部分 Doris Nereids 上 expr=null NPE */
     const tokenSql = `
+SELECT
+  r.\`${C.runsJobFk}\` AS job_id,
+  MAX(j.\`${J.jobsName}\`) AS job_name,
+  MAX(${jobAgentExpr}) AS job_agent_id,
+  MAX(${jobAgentNameExpr}) AS job_agent_name,
+  SUM(COALESCE((${tokenEffSql}), 0)) AS total_tokens,
+  MAX(${tokenLastStartedExpr}) AS last_run_started_at
+FROM ${T.runs} r
+LEFT JOIN ${T.jobs} j ON j.\`${J.jobsId}\` = r.\`${C.runsJobFk}\`
+${whereSql}
+GROUP BY r.\`${C.runsJobFk}\`
+HAVING SUM(COALESCE((${tokenEffSql}), 0)) > 0
+ORDER BY total_tokens DESC
+LIMIT 10
+`;
+    const [tokenRaw] = await runOverviewSql("tokenTop10", tokenSql, [...params]);
+    const tokenTop10Rows = Array.isArray(tokenRaw) ? tokenRaw : [];
+    const tokenJobIds = tokenTop10Rows
+      .map((row) => normScalar(row.job_id ?? row.JOB_ID))
+      .filter((id) => id != null)
+      .map((id) => String(id));
+
+    /** 与 lastWinSql 同形的「每任务最新一条」状态，仅对 Token Top10 的 job_id 拉取 */
+    /** @type {Map<string, string | null>} */
+    const tokenLastStatusByJob = new Map();
+    if (tokenJobIds.length && C.runsStatus && String(C.runsStatus).trim()) {
+      const stCol = sanitizeIdent(C.runsStatus, "status");
+      const placeholders = tokenJobIds.map(() => "?").join(", ");
+      const lastStSql = `
+SELECT * FROM (
+  SELECT
+    r.\`${C.runsJobFk}\` AS job_id,
+    r.\`${stCol}\` AS last_run_status,
+    ROW_NUMBER() OVER (
+      PARTITION BY r.\`${C.runsJobFk}\`
+      ORDER BY r.\`${sanitizeIdent(C.runsOrder, C.runsId)}\` DESC, r.\`${C.runsId}\` DESC
+    ) AS rn
+  FROM ${T.runs} r
+  ${whereSql}
+  AND r.\`${C.runsJobFk}\` IN (${placeholders})
+) t
+WHERE t.rn = 1
+`;
+      try {
+        const [lastStRaw] = await runOverviewSql("tokenTop10LastStatus", lastStSql, [...params, ...tokenJobIds]);
+        for (const row of Array.isArray(lastStRaw) ? lastStRaw : []) {
+          const jid = normScalar(row.job_id ?? row.JOB_ID);
+          const st = normScalar(row.last_run_status ?? row.LAST_RUN_STATUS);
+          if (jid != null) tokenLastStatusByJob.set(String(jid), st != null ? String(st) : null);
+        }
+      } catch {
+        /* 状态列为可选展示，失败时不阻塞整页图表 */
+      }
+    }
+
+    const tokenTop10 = tokenTop10Rows.map((row) => {
+      const lastRaw = row.last_run_started_at ?? row.LAST_RUN_STARTED_AT;
+      const lastNorm = normScalar(lastRaw);
+      const jid = normScalar(row.job_id ?? row.JOB_ID) != null ? String(normScalar(row.job_id ?? row.JOB_ID)) : "";
+      const stFromMap = jid ? tokenLastStatusByJob.get(jid) : undefined;
+      const stNorm = stFromMap !== undefined ? stFromMap : null;
+      return {
+        jobId: jid,
+        jobName: normScalar(row.job_name) != null ? String(normScalar(row.job_name)) : "",
+        jobAgentId:
+          normScalar(row.job_agent_id ?? row.JOB_AGENT_ID) != null
+            ? String(normScalar(row.job_agent_id ?? row.JOB_AGENT_ID))
+            : null,
+        jobAgentName: (() => {
+          const v = normScalar(row.job_agent_name ?? row.JOB_AGENT_NAME);
+          if (v == null) return null;
+          const s = String(v).trim();
+          return s || null;
+        })(),
+        totalTokens:
+          row.total_tokens != null && Number.isFinite(Number(row.total_tokens))
+            ? Math.floor(Number(row.total_tokens))
+            : 0,
+        lastRunStartedAt: lastNorm != null ? String(lastNorm) : null,
+        lastRunStatus: stNorm != null && String(stNorm).trim() ? String(stNorm) : null,
+      };
+    });
+
+    /** 按任务 Token 合计（饼图）：前 8 个任务 + 其余合并为 `__other__` */
+    const TOKEN_PIE_TOP_N = 8;
+    const tokenPieSql = `
 SELECT job_id, job_name, total_tokens FROM (
   SELECT
     r.\`${C.runsJobFk}\` AS job_id,
     MAX(j.\`${J.jobsName}\`) AS job_name,
+    MAX(${jobAgentExpr}) AS job_agent_id,
     SUM(COALESCE((${tokenEffSql}), 0)) AS total_tokens
   FROM ${T.runs} r
   LEFT JOIN ${T.jobs} j ON j.\`${J.jobsId}\` = r.\`${C.runsJobFk}\`
@@ -1454,34 +1851,52 @@ SELECT job_id, job_name, total_tokens FROM (
 ) t
 WHERE total_tokens > 0
 ORDER BY total_tokens DESC
-LIMIT 10
 `;
-    const [tokenRaw] = await conn.query(tokenSql, [...params]);
-    const tokenTop10 = (Array.isArray(tokenRaw) ? tokenRaw : []).map((row) => ({
-      jobId: normScalar(row.job_id) != null ? String(normScalar(row.job_id)) : "",
-      jobName: normScalar(row.job_name) != null ? String(normScalar(row.job_name)) : "",
-      totalTokens:
-        row.total_tokens != null && Number.isFinite(Number(row.total_tokens))
-          ? Math.floor(Number(row.total_tokens))
-          : 0,
-    }));
+    const [tokenPieRaw] = await runOverviewSql("tokenPie", tokenPieSql, [...params]);
+    const allTokenByJob = (Array.isArray(tokenPieRaw) ? tokenPieRaw : [])
+      .map((row) => ({
+        jobId: normScalar(row.job_id) != null ? String(normScalar(row.job_id)) : "",
+        jobName: normScalar(row.job_name) != null ? String(normScalar(row.job_name)) : "",
+        jobAgentId:
+          normScalar(row.job_agent_id ?? row.JOB_AGENT_ID) != null
+            ? String(normScalar(row.job_agent_id ?? row.JOB_AGENT_ID))
+            : null,
+        totalTokens:
+          row.total_tokens != null && Number.isFinite(Number(row.total_tokens))
+            ? Math.floor(Number(row.total_tokens))
+            : 0,
+      }))
+      .filter((r) => r.jobId && r.totalTokens > 0);
+    const tokenDistributionByJob = (() => {
+      if (!allTokenByJob.length) return [];
+      const sorted = [...allTokenByJob].sort((a, b) => b.totalTokens - a.totalTokens);
+      const top = sorted.slice(0, TOKEN_PIE_TOP_N);
+      const otherSum = sorted.slice(TOKEN_PIE_TOP_N).reduce((s, r) => s + r.totalTokens, 0);
+      if (otherSum > 0) {
+        return [...top, { jobId: "__other__", jobName: "", totalTokens: otherSum }];
+      }
+      return top;
+    })();
 
     /** @type {{ reasonKey: string, count: number }[]} */
     let failureReasonDistribution = [];
-    if (stLower && C.runsError && String(C.runsError).trim()) {
+    const failureMerged = buildFailureReasonMergedExprForAgg(C);
+    if (stLower && failureMerged) {
       try {
-        const errCol = sanitizeIdent(C.runsError, "error_message");
-        const reasonExpr = `SUBSTRING(TRIM(COALESCE(CAST(r.\`${errCol}\` AS STRING), '')), 1, 240)`;
+        /** 内层先算 raw_key，外层 GROUP BY 别名列，避免 Nereids 对「SELECT/GROUP BY 重复复杂表达式」报错 */
         const failReasonSql = `
-SELECT ${reasonExpr} AS raw_key, COUNT(*) AS cnt
-FROM ${T.runs} r
-${whereSql}
-AND (${stLower}) IN ${FAIL_STATUSES_SQL}
-GROUP BY ${reasonExpr}
+SELECT raw_key, COUNT(*) AS cnt
+FROM (
+  SELECT SUBSTRING(TRIM(COALESCE((${failureMerged}), '')), 1, 240) AS raw_key
+  FROM ${T.runs} r
+  ${whereSql}
+  AND (${stLower}) IN ${FAIL_STATUSES_SQL}
+) fr
+GROUP BY raw_key
 ORDER BY cnt DESC
 LIMIT 64
 `;
-        const [failReasonRaw] = await conn.query(failReasonSql, [...params]);
+        const [failReasonRaw] = await runOverviewSql("failureReasonDist", failReasonSql, [...params]);
         /** @type {Map<string, number>} */
         const mergeMap = new Map();
         for (const row of Array.isArray(failReasonRaw) ? failReasonRaw : []) {
@@ -1523,7 +1938,7 @@ SELECT
 FROM ${T.jobs} j
 ORDER BY j.\`${sanitizeIdent(orderCol, J.jobsId)}\` DESC
 `;
-    const [jobRows] = await conn.query(jobsListSql);
+    const [jobRows] = await runOverviewSql("jobsList", jobsListSql, []);
 
     const aggWinSql = `
 SELECT
@@ -1536,7 +1951,7 @@ FROM ${T.runs} r
 ${whereSql}
 GROUP BY r.\`${C.runsJobFk}\`
 `;
-    const [aggWinRaw] = await conn.query(aggWinSql, [...params]);
+    const [aggWinRaw] = await runOverviewSql("aggWinByJob", aggWinSql, [...params]);
     /** @type {Map<string, object>} */
     const aggWinByJob = new Map();
     for (const row of Array.isArray(aggWinRaw) ? aggWinRaw : []) {
@@ -1558,7 +1973,7 @@ SELECT * FROM (
 ) t
 WHERE t.rn = 1
 `;
-    const [lastWinRaw] = await conn.query(lastWinSql, [...params]);
+    const [lastWinRaw] = await runOverviewSql("lastRunByJob", lastWinSql, [...params]);
     /** @type {Map<string, object>} */
     const lastWinByJob = new Map();
     for (const row of Array.isArray(lastWinRaw) ? lastWinRaw : []) {
@@ -1632,8 +2047,10 @@ WHERE t.rn = 1
       version: 0,
       range: { startIso, endIso },
       trend,
+      tokenTrendByJob,
       slowTop10,
       tokenTop10,
+      tokenDistributionByJob,
       failureReasonDistribution,
       distribution,
       anomalyTasks,
@@ -1964,7 +2381,23 @@ function pickJobsAgentIdColumn(jobsCols) {
     const c = sanitizeIdent(String(env).trim(), "agent_id");
     return jobsCols.has(c) ? c : null;
   }
-  for (const c of ["agent_id", "digital_employee_id", "agent_uuid", "employee_id"]) {
+  for (const c of ["agent_id", "agentid", "digital_employee_id", "agent_uuid", "employee_id"]) {
+    if (jobsCols.has(c)) return c;
+  }
+  return null;
+}
+
+/**
+ * @param {Set<string>} jobsCols
+ * @returns {string | null}
+ */
+function pickJobsAgentNameColumn(jobsCols) {
+  const env = process.env.CRON_JOBS_COL_AGENT_NAME;
+  if (env != null && String(env).trim()) {
+    const c = sanitizeIdent(String(env).trim(), "agent_name");
+    return jobsCols.has(c) ? c : null;
+  }
+  for (const c of ["agent_name", "digital_employee_name", "agent_display_name", "agent_label"]) {
     if (jobsCols.has(c)) return c;
   }
   return null;

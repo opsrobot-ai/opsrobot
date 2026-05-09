@@ -91,6 +91,7 @@ const MOCK_JOB_LOG_SNAPSHOT_BY_ID = {
     display_name: "【cron_jobs】同步库存",
     description: "Mock：任务表描述 / 汇总来自 log_attributes",
     agent_id: "digital-emp-101",
+    agentName: "库存同步数字员工",
     session_id: "sess-from-job-session-id",
     session_key: "agent:main:cron:101:ctx",
     session_target: "feishu:user:openId",
@@ -146,6 +147,37 @@ function tokenTotalFromMockRow(r) {
   const b = Number(u.output_tokens ?? /** @type {any} */ (u).completion_tokens);
   if (Number.isFinite(a) || Number.isFinite(b)) return (Number.isFinite(a) ? a : 0) + (Number.isFinite(b) ? b : 0);
   return null;
+}
+
+/** @param {{ usage?: { input_tokens?: unknown, prompt_tokens?: unknown } }} r */
+function tokenInputFromMockRow(r) {
+  const u = r?.usage;
+  if (!u || typeof u !== "object") return null;
+  const raw = u.input_tokens ?? /** @type {any} */ (u).prompt_tokens;
+  if (raw == null || raw === "" || !Number.isFinite(Number(raw))) return null;
+  return Number(raw);
+}
+
+/** @param {{ usage?: { output_tokens?: unknown, completion_tokens?: unknown } }} r */
+function tokenOutputFromMockRow(r) {
+  const u = r?.usage;
+  if (!u || typeof u !== "object") return null;
+  const raw = u.output_tokens ?? /** @type {any} */ (u).completion_tokens;
+  if (raw == null || raw === "" || !Number.isFinite(Number(raw))) return null;
+  return Number(raw);
+}
+
+/** 与 `cron-jobs-query` / `pickAgentDisplayName` 路径对齐：优先展示名，否则回落 agentId */
+function mockJobAgentNameFromSnapshot(jid, agentId) {
+  const snap = MOCK_JOB_LOG_SNAPSHOT_BY_ID[String(jid)];
+  if (snap && typeof snap === "object") {
+    for (const k of ["agentName", "agentDisplayName", "displayName", "agentLabel"]) {
+      const v = /** @type {Record<string, unknown>} */ (snap)[k];
+      if (typeof v === "string" && v.trim()) return v.trim();
+    }
+  }
+  const id = agentId != null && String(agentId).trim() ? String(agentId).trim() : "";
+  return id || null;
 }
 
 /** 与 Doris `buildRunEffectiveDurationMsExprForAgg` / `mapCronRunPageRowToJsonlEvent` 一致：log 耗时优先，否则墙钟。 */
@@ -421,11 +453,25 @@ export function mockCronRunsRunOverviewCharts(opts = {}) {
     const m = String(d.getMonth() + 1).padStart(2, "0");
     const day = String(d.getDate()).padStart(2, "0");
     const dk = `${y}-${m}-${day}`;
-    if (!dayMap.has(dk)) dayMap.set(dk, { successCount: 0, failureCount: 0, totalCount: 0, _durSum: 0, _durN: 0 });
+    if (!dayMap.has(dk)) {
+      dayMap.set(dk, {
+        successCount: 0,
+        failureCount: 0,
+        totalCount: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        _durSum: 0,
+        _durN: 0,
+      });
+    }
     const o = dayMap.get(dk);
     o.totalCount += 1;
     if (isOk(r.status)) o.successCount += 1;
     else if (isFail(r.status)) o.failureCount += 1;
+    const inTok = tokenInputFromMockRow(r);
+    const outTok = tokenOutputFromMockRow(r);
+    if (inTok != null && Number.isFinite(inTok)) o.inputTokens += inTok;
+    if (outTok != null && Number.isFinite(outTok)) o.outputTokens += outTok;
     const dur = effectiveDurationMsFromMockRun(r);
     if (dur != null && Number.isFinite(dur) && dur >= 0) {
       o._durSum += dur;
@@ -442,8 +488,30 @@ export function mockCronRunsRunOverviewCharts(opts = {}) {
         successCount: o.successCount,
         failureCount: o.failureCount,
         avgDurationMs: o._durN > 0 ? Math.round(o._durSum / o._durN) : null,
+        inputTokens: Math.floor(o.inputTokens),
+        outputTokens: Math.floor(o.outputTokens),
       };
     });
+
+  /** 与后端 `tokenTrendByJob` 同形：按日 × 任务 Token 合计（输入+输出） */
+  const tokenByDayJob = new Map();
+  for (const r of list) {
+    const d = new Date(String(r.startedAt));
+    if (!Number.isFinite(d.getTime())) continue;
+    const dk = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const jid = String(r.jobId ?? "");
+    if (!jid) continue;
+    const inTok = tokenInputFromMockRow(r);
+    const outTok = tokenOutputFromMockRow(r);
+    const add = (inTok != null && Number.isFinite(inTok) ? inTok : 0) + (outTok != null && Number.isFinite(outTok) ? outTok : 0);
+    if (add <= 0) continue;
+    const key = `${dk}\t${jid}`;
+    const name = r.jobName != null ? String(r.jobName) : jid;
+    const cur = tokenByDayJob.get(key);
+    if (cur) cur.totalTokens += Math.floor(add);
+    else tokenByDayJob.set(key, { day: dk, jobId: jid, jobName: name, totalTokens: Math.floor(add) });
+  }
+  const tokenTrendByJob = [...tokenByDayJob.values()];
 
   const byJob = new Map();
   for (const r of list) {
@@ -552,27 +620,87 @@ export function mockCronRunsRunOverviewCharts(opts = {}) {
   const tokenArr = [];
   for (const [jid, runs] of byJob) {
     let maxD = null;
+    let maxDStartedAt = null;
+    let maxDStatus = null;
     let tokSum = 0;
+    let lastStartedAt = null;
+    let lastStatus = null;
     for (const rr of runs) {
+      const st = rr.startedAt != null ? String(rr.startedAt).trim() : "";
+      const stOk = st !== "" && Number.isFinite(Date.parse(st)) ? st : null;
+      if (stOk != null) {
+        const ts = Date.parse(stOk);
+        if (lastStartedAt == null || ts > Date.parse(String(lastStartedAt))) {
+          lastStartedAt = stOk;
+          lastStatus = rr?.status != null ? String(rr.status) : null;
+        }
+      }
       const d = effectiveDurationMsFromMockRun(rr);
       if (d != null && Number.isFinite(d) && d >= 0) {
-        maxD = maxD == null ? d : Math.max(maxD, d);
+        const fl = Math.floor(d);
+        if (maxD == null || fl > maxD) {
+          maxD = fl;
+          maxDStartedAt = stOk;
+          maxDStatus = rr?.status != null ? String(rr.status) : null;
+        } else if (maxD != null && fl === maxD && stOk != null) {
+          if (maxDStartedAt == null || Date.parse(stOk) > Date.parse(String(maxDStartedAt))) {
+            maxDStartedAt = stOk;
+            maxDStatus = rr?.status != null ? String(rr.status) : null;
+          }
+        }
       }
       const tt = tokenTotalFromMockRow(rr);
       if (tt != null && Number.isFinite(tt)) tokSum += tt;
     }
     const name = runs[0]?.jobName != null ? String(runs[0].jobName) : jid;
-    slowArr.push({ jobId: jid, jobName: name, maxDurationMs: maxD });
-    tokenArr.push({ jobId: jid, jobName: name, totalTokens: Math.floor(tokSum) });
+    const agentId = runs[0]?.agentId != null && String(runs[0].agentId).trim() ? String(runs[0].agentId) : null;
+    const agentName = mockJobAgentNameFromSnapshot(jid, agentId);
+    slowArr.push({
+      jobId: jid,
+      jobName: name,
+      jobAgentId: agentId,
+      jobAgentName: agentName,
+      maxDurationMs: maxD,
+      maxDurationRunStartedAt: maxDStartedAt,
+      maxDurationRunStatus: maxDStatus,
+    });
+    tokenArr.push({
+      jobId: jid,
+      jobName: name,
+      jobAgentId: agentId,
+      jobAgentName: agentName,
+      totalTokens: Math.floor(tokSum),
+      lastRunStartedAt: lastStartedAt,
+      lastRunStatus: lastStatus,
+    });
   }
   slowArr.sort((a, b) => (Number(b.maxDurationMs) || -1) - (Number(a.maxDurationMs) || -1));
   const slowTop10 = slowArr.slice(0, 10).map((x) => ({
     jobId: x.jobId,
     jobName: x.jobName,
+    jobAgentId: x.jobAgentId ?? null,
+    jobAgentName: x.jobAgentName ?? null,
     maxDurationMs: x.maxDurationMs != null && Number.isFinite(Number(x.maxDurationMs)) ? Math.floor(Number(x.maxDurationMs)) : null,
+    maxDurationRunStartedAt: x.maxDurationRunStartedAt != null ? String(x.maxDurationRunStartedAt) : null,
+    maxDurationRunStatus: x.maxDurationRunStatus != null ? String(x.maxDurationRunStatus) : null,
   }));
   tokenArr.sort((a, b) => b.totalTokens - a.totalTokens);
   const tokenTop10 = tokenArr.filter((x) => x.totalTokens > 0).slice(0, 10);
+
+  const TOKEN_PIE_TOP_N = 8;
+  const tokenPos = tokenArr.filter((x) => x.totalTokens > 0);
+  const tokenDistributionByJob = (() => {
+    if (!tokenPos.length) return [];
+    const top = tokenPos.slice(0, TOKEN_PIE_TOP_N);
+    const otherSum = tokenPos.slice(TOKEN_PIE_TOP_N).reduce((s, x) => s + x.totalTokens, 0);
+    if (otherSum > 0) {
+      return [
+        ...top.map(({ jobId, jobName, jobAgentId, totalTokens }) => ({ jobId, jobName, jobAgentId: jobAgentId ?? null, totalTokens })),
+        { jobId: "__other__", jobName: "", totalTokens: otherSum },
+      ];
+    }
+    return top.map(({ jobId, jobName, jobAgentId, totalTokens }) => ({ jobId, jobName, jobAgentId: jobAgentId ?? null, totalTokens }));
+  })();
 
   const runCountArr = [];
   const failCountArr = [];
@@ -590,10 +718,12 @@ export function mockCronRunsRunOverviewCharts(opts = {}) {
       }
     }
     const name = runs[0]?.jobName != null ? String(runs[0].jobName) : jid;
-    runCountArr.push({ jobId: jid, jobName: name, runCount: runs.length });
-    failCountArr.push({ jobId: jid, jobName: name, failureCount: failC, runCount: runs.length });
+    const agentId = runs[0]?.agentId != null && String(runs[0].agentId).trim() ? String(runs[0].agentId) : null;
+    const agentName = mockJobAgentNameFromSnapshot(jid, agentId);
+    runCountArr.push({ jobId: jid, jobName: name, jobAgentId: agentId, jobAgentName: agentName, runCount: runs.length });
+    failCountArr.push({ jobId: jid, jobName: name, jobAgentId: agentId, jobAgentName: agentName, failureCount: failC, runCount: runs.length });
     if (durN > 0) {
-      avgDurArr.push({ jobId: jid, jobName: name, avgDurationMs: Math.round(durSum / durN) });
+      avgDurArr.push({ jobId: jid, jobName: name, jobAgentId: agentId, jobAgentName: agentName, avgDurationMs: Math.round(durSum / durN) });
     }
   }
   runCountArr.sort((a, b) => b.runCount - a.runCount);
@@ -611,9 +741,12 @@ export function mockCronRunsRunOverviewCharts(opts = {}) {
     }
     const name = runs[0]?.jobName != null ? String(runs[0].jobName) : jid;
     const ratePct = runs.length > 0 ? Math.round((okc / runs.length) * 1000) / 10 : 0;
+    const srAgentId = runs[0]?.agentId != null && String(runs[0].agentId).trim() ? String(runs[0].agentId) : null;
     successRateArr.push({
       jobId: jid,
       jobName: name,
+      jobAgentId: srAgentId,
+      jobAgentName: mockJobAgentNameFromSnapshot(jid, srAgentId),
       runCount: runs.length,
       successCount: okc,
       failureCount: fc,
@@ -874,8 +1007,10 @@ export function mockCronRunsRunOverviewCharts(opts = {}) {
     version: 0,
     range: { startIso, endIso },
     trend,
+    tokenTrendByJob,
     slowTop10,
     tokenTop10,
+    tokenDistributionByJob,
     jobTop10Analysis,
     failureReasonDistribution,
     distribution,
