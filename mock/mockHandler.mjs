@@ -15,6 +15,7 @@ import { mockConfigAuditStats } from "./data/config-audit-stats.mjs";
 import { mockSessionCostDetail } from "./data/session-cost-detail.mjs";
 import { mockSessionCostOptions } from "./data/session-cost-options.mjs";
 import { mockOtelOverview } from "./data/otel-overview.mjs";
+import { mockOtelTraces } from "./data/otel-traces.mjs";
 import { mockHostMonitorData, mockHostMonitorOverviewData } from "./data/host-monitor.mjs";
 import { mockDigitalEmployeeOverview } from "./data/digital-employee-overview.mjs";
 import { mockDigitalEmployeeProfile } from "./data/digital-employee-profile.mjs";
@@ -97,6 +98,17 @@ export function handleMockRequest(url, res) {
     const u = new URL(url, "http://mock.local");
     const days = parseInt(u.searchParams.get("days") || "7", 10);
     sendJson(res, 200, mockAuditOverview(days));
+    return true;
+  }
+
+  // --- Gateway 链路分析 ---
+  if (url.startsWith("/api/otel-traces")) {
+    const u = new URL(url, "http://mock.local");
+    sendJson(res, 200, mockOtelTraces({
+      hours: u.searchParams.get("hours") || "24",
+      startTime: u.searchParams.get("startTime") || null,
+      endTime: u.searchParams.get("endTime") || null,
+    }));
     return true;
   }
 

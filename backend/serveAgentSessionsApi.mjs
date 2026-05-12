@@ -80,6 +80,7 @@ import {
 } from "./digital-employee/digital-employee-service.mjs";
 
 import { queryOtelOverviewData } from "./otel-metrics/otel-overview-query.mjs";
+import { queryOtelTraceData } from "./otel-metrics/otel-traces-query.mjs";
 import { queryHostMonitor, queryHostMonitorOverview } from "./host-monitor/host-monitor-query.mjs";
 const port = Number(process.env.PORT ?? 8787);
 
@@ -104,6 +105,21 @@ const server = http.createServer(async (req, res) => {
       const startTime = u.searchParams.get("startTime");
       const endTime = u.searchParams.get("endTime");
       const data = await queryOtelOverviewData({ hours, granularityMinutes, startTime, endTime });
+      sendJson(res, 200, data);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      sendJson(res, 500, { error: msg });
+    }
+    return;
+  }
+
+  if (url.startsWith("/api/otel-traces")) {
+    try {
+      const u = new URL(url, "http://127.0.0.1");
+      const hours = Number(u.searchParams.get("hours") ?? "1");
+      const startTime = u.searchParams.get("startTime");
+      const endTime = u.searchParams.get("endTime");
+      const data = await queryOtelTraceData({ hours, startTime, endTime });
       sendJson(res, 200, data);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -531,6 +547,7 @@ server.listen(port, "0.0.0.0", () => {
   console.log(`[agent-sessions] http://127.0.0.1:${port}/api/digital-employees/overview`);
   console.log(`[agent-sessions] http://127.0.0.1:${port}/api/digital-employees/profile?agentName=`);
   console.log(`[agent-sessions] http://127.0.0.1:${port}/api/otel-overview`);
+  console.log(`[agent-sessions] http://127.0.0.1:${port}/api/otel-traces`);
   console.log(`[agent-sessions] http://127.0.0.1:${port}/api/cost-overview`);
   console.log(`[agent-sessions] http://127.0.0.1:${port}/api/agent-cost-list?startDay=&endDay=`);
   console.log(`[agent-sessions] http://127.0.0.1:${port}/api/llm-cost-detail?startDay=&endDay=`);
