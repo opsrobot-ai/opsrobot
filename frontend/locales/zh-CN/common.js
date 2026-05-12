@@ -49,6 +49,7 @@ export default {
   "nav.gatewayMonitoring": "Gateway监控",
   "nav.otelOverview": "概览",
   "nav.openclawInstance": "OpenClaw实例",
+  "nav.callChainAnalysis": "调用链分析",
   "nav.instanceMonitoring": "驾驶舱",
   "nav.digitalEmployeeOverview": "数字员工概览",
   "nav.digitalEmployeeList": "数字员工",
@@ -98,6 +99,8 @@ export default {
 
   "page.openclawInstance.title": "OpenClaw 实例",
   "page.openclawInstance.subtitle": "运行概览、实例列表与配置变更",
+  "page.callChainAnalysis.title": "调用链分析",
+  "page.callChainAnalysis.subtitle": "OpenTelemetry 调用链追踪与性能分析",
 
   "openclawInstance.tabRunOverview": "运行概览",
   "openclawInstance.tabRunDetail": "运行详情",

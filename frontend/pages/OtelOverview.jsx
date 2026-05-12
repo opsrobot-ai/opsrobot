@@ -10,7 +10,6 @@ const PAGE_TAB_KEYS = [
   { key: "cost", labelKey: "otelOverview.pageTab.cost" },
   { key: "message", labelKey: "otelOverview.pageTab.message" },
   { key: "queue", labelKey: "otelOverview.pageTab.queue" },
-  { key: "trace", labelKey: "otelOverview.pageTab.trace" },
 ];
 
 const INSTANCE_DETAIL_TAB_KEYS = [
@@ -20,7 +19,6 @@ const INSTANCE_DETAIL_TAB_KEYS = [
   { key: "cost", labelKey: "otelOverview.detailTab.cost" },
   { key: "message", labelKey: "otelOverview.detailTab.message" },
   { key: "queue", labelKey: "otelOverview.detailTab.queue" },
-  { key: "trace", labelKey: "otelOverview.detailTab.trace" },
 ];
 
 const TIME_RANGE_DEFS = [
@@ -470,200 +468,6 @@ export function OtelInstanceListPanel({ data }) {
     );
   };
 
-  const SPAN_NAME_LABELS = {
-    "openclaw.message.processed": intl.get("otelOverview.spanNameMessageProcessed"),
-    "openclaw.model.usage": intl.get("otelOverview.spanNameModelUsage"),
-    "openclaw.webhook.processed": intl.get("otelOverview.spanNameWebhookProcessed"),
-    "openclaw.webhook.error": intl.get("otelOverview.spanNameWebhookError"),
-    "openclaw.session.stuck": intl.get("otelOverview.spanNameSessionStuck"),
-  };
-
-  const formatTokenCount = (count) => {
-    if (count >= 1000000) return (count / 1000000).toFixed(2) + "M";
-    if (count >= 1000) return (count / 1000).toFixed(1) + "K";
-    return count?.toLocaleString() || "0";
-  };
-
-  const renderTraceTab = () => {
-    if (traceLoading && !traceData) {
-      return (
-        <div className="flex items-center justify-center py-20">
-          <Icon name="loading" className="h-6 w-6 animate-spin text-primary" />
-          <span className="ml-2 text-sm text-gray-500 dark:text-gray-400">{intl.get("otelOverview.loading")}</span>
-        </div>
-      );
-    }
-
-    if (traceError) {
-      return (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-4 dark:border-red-800 dark:bg-red-950/40">
-          <div className="flex items-start gap-3">
-            <Icon name="alert" className="h-5 w-5 text-red-600 dark:text-red-400 mt-0.5" />
-            <div className="flex-1">
-              <h3 className="text-sm font-semibold text-red-800 dark:text-red-200">{intl.get("otelOverview.loadErrorTitle")}</h3>
-              <p className="mt-1 text-sm text-red-700 dark:text-red-300">{traceError}</p>
-              <button type="button" onClick={fetchTraceData} className="mt-2 text-sm font-medium text-red-700 hover:text-red-800 dark:text-red-300 dark:hover:text-red-200 underline">
-                {intl.get("otelOverview.clickRetry")}
-              </button>
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    const td = traceData || {};
-    const overview = td.overview || {};
-    const bySpanName = td.bySpanName || [];
-    const byChannel = td.byChannel || [];
-    const byModel = td.byModel || [];
-    const byOutcome = td.byOutcome || [];
-    const tokenByModel = td.tokenByModel || [];
-    const trends = td.trends || {};
-    const topSlow = td.topSlow || [];
-    const recentErrors = td.recentErrors || [];
-
-    const mainTrend = trends["openclaw.message.processed"] || trends[Object.keys(trends)[0]] || [];
-
-    return (
-      <div className="space-y-6">
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <div className="app-card p-5">
-            <p className="text-sm text-gray-500 dark:text-gray-400">{intl.get("otelOverview.traceTotalSpans")}</p>
-            <span className="text-2xl font-semibold text-blue-600 dark:text-blue-400">{(overview.totalSpans || 0).toLocaleString()}</span>
-          </div>
-          <div className="app-card p-5">
-            <p className="text-sm text-gray-500 dark:text-gray-400">{intl.get("otelOverview.traceErrorRate")}</p>
-            <span className="text-2xl font-semibold text-red-600 dark:text-red-400">{(overview.errorRate || 0).toFixed(2)}%</span>
-            <span className="ml-2 text-xs text-gray-400 dark:text-gray-500">({overview.totalErrors || 0} {intl.get("otelOverview.traceErrorCount")})</span>
-          </div>
-          <div className="app-card p-5">
-            <p className="text-sm text-gray-500 dark:text-gray-400">{intl.get("otelOverview.traceAvgDuration")}</p>
-            <span className="text-2xl font-semibold text-emerald-600 dark:text-emerald-400">{(overview.avgDurationMs || 0).toFixed(1)}ms</span>
-          </div>
-          <div className="app-card p-5">
-            <p className="text-sm text-gray-500 dark:text-gray-400">{intl.get("otelOverview.traceTotalTokens")}</p>
-            <span className="text-2xl font-semibold text-violet-600 dark:text-violet-400">{formatTokenCount(overview.totalTokens || 0)}</span>
-          </div>
-        </div>
-
-        <div className="grid gap-6 lg:grid-cols-3">
-          <div className="app-card p-5">
-            <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-4">{intl.get("otelOverview.chartSpanDist")}</h3>
-            <PieChart data={bySpanName.map(r => ({ name: SPAN_NAME_LABELS[r.name] || r.name, value: r.value }))} size={100} />
-          </div>
-          <div className="app-card p-5">
-            <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-4">{intl.get("otelOverview.chartChannelTraceDist")}</h3>
-            <PieChart data={byChannel} size={100} />
-          </div>
-          <div className="app-card p-5">
-            <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-4">{intl.get("otelOverview.chartOutcomeDist")}</h3>
-            <PieChart data={byOutcome} size={100} />
-          </div>
-        </div>
-
-        <div className="app-card p-5">
-          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-4">{intl.get("otelOverview.chartTraceTrend")}</h3>
-          <LineChart data={mainTrend} color="#3b82f6" height={160} />
-        </div>
-
-        <div className="grid gap-6 lg:grid-cols-2">
-          <div className="app-card p-5">
-            <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-4">{intl.get("otelOverview.chartModelTraceDist")}</h3>
-            <PieChart data={byModel} size={100} />
-          </div>
-          <div className="app-card p-5">
-            <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-4">{intl.get("otelOverview.rankModelTokenTrace")}</h3>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-gray-100 dark:border-gray-700/60">
-                    <th className="py-2 px-3 text-left font-medium text-gray-500 dark:text-gray-400">{intl.get("otelOverview.colModel")}</th>
-                    <th className="py-2 px-3 text-right font-medium text-gray-500 dark:text-gray-400">{intl.get("otelOverview.colCallCount")}</th>
-                    <th className="py-2 px-3 text-right font-medium text-gray-500 dark:text-gray-400">{intl.get("otelOverview.colInputToken")}</th>
-                    <th className="py-2 px-3 text-right font-medium text-gray-500 dark:text-gray-400">{intl.get("otelOverview.colOutputToken")}</th>
-                    <th className="py-2 px-3 text-right font-medium text-gray-500 dark:text-gray-400">{intl.get("otelOverview.colTotalToken")}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {tokenByModel.map((r, i) => (
-                    <tr key={i} className="border-b border-gray-50 dark:border-gray-800/60">
-                      <td className="py-2 px-3 text-gray-900 dark:text-gray-100">{r.name}</td>
-                      <td className="py-2 px-3 text-right text-gray-600 dark:text-gray-300">{(r.callCount || 0).toLocaleString()}</td>
-                      <td className="py-2 px-3 text-right text-gray-600 dark:text-gray-300">{formatTokenCount(r.inputTokens || 0)}</td>
-                      <td className="py-2 px-3 text-right text-gray-600 dark:text-gray-300">{formatTokenCount(r.outputTokens || 0)}</td>
-                      <td className="py-2 px-3 text-right font-medium text-gray-900 dark:text-gray-100">{formatTokenCount(r.value || 0)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-
-        <div className="grid gap-6 lg:grid-cols-2">
-          <div className="app-card p-5">
-            <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-4">{intl.get("otelOverview.topSlowTraces")}</h3>
-            {topSlow.length === 0 ? (
-              <p className="text-sm text-gray-400 dark:text-gray-500">{intl.get("otelOverview.noTraceData")}</p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-gray-100 dark:border-gray-700/60">
-                      <th className="py-2 px-3 text-left font-medium text-gray-500 dark:text-gray-400">{intl.get("otelOverview.colSpanName")}</th>
-                      <th className="py-2 px-3 text-right font-medium text-gray-500 dark:text-gray-400">{intl.get("otelOverview.colDuration")}</th>
-                      <th className="py-2 px-3 text-left font-medium text-gray-500 dark:text-gray-400">{intl.get("otelOverview.colChannel")}</th>
-                      <th className="py-2 px-3 text-left font-medium text-gray-500 dark:text-gray-400">{intl.get("otelOverview.colModel")}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {topSlow.slice(0, 10).map((r, i) => (
-                      <tr key={i} className="border-b border-gray-50 dark:border-gray-800/60">
-                        <td className="py-2 px-3 text-gray-900 dark:text-gray-100">{SPAN_NAME_LABELS[r.spanName] || r.spanName}</td>
-                        <td className="py-2 px-3 text-right font-medium text-amber-600 dark:text-amber-400">{(r.durationMs || 0).toFixed(1)}</td>
-                        <td className="py-2 px-3 text-gray-600 dark:text-gray-300">{r.channel || "-"}</td>
-                        <td className="py-2 px-3 text-gray-600 dark:text-gray-300">{r.model || "-"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-          <div className="app-card p-5">
-            <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-4">{intl.get("otelOverview.recentErrors")}</h3>
-            {recentErrors.length === 0 ? (
-              <p className="text-sm text-gray-400 dark:text-gray-500">{intl.get("otelOverview.noErrorData")}</p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-gray-100 dark:border-gray-700/60">
-                      <th className="py-2 px-3 text-left font-medium text-gray-500 dark:text-gray-400">{intl.get("otelOverview.colSpanName")}</th>
-                      <th className="py-2 px-3 text-left font-medium text-gray-500 dark:text-gray-400">{intl.get("otelOverview.colErrorMsg")}</th>
-                      <th className="py-2 px-3 text-right font-medium text-gray-500 dark:text-gray-400">{intl.get("otelOverview.colDuration")}</th>
-                      <th className="py-2 px-3 text-left font-medium text-gray-500 dark:text-gray-400">{intl.get("otelOverview.colTimestamp")}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {recentErrors.slice(0, 10).map((r, i) => (
-                      <tr key={i} className="border-b border-gray-50 dark:border-gray-800/60">
-                        <td className="py-2 px-3 text-red-600 dark:text-red-400">{SPAN_NAME_LABELS[r.spanName] || r.spanName}</td>
-                        <td className="py-2 px-3 text-gray-600 dark:text-gray-300 truncate max-w-[200px]">{r.errorMsg || r.statusMessage || "-"}</td>
-                        <td className="py-2 px-3 text-right text-gray-600 dark:text-gray-300">{(r.durationMs || 0).toFixed(1)}</td>
-                        <td className="py-2 px-3 text-gray-400 dark:text-gray-500 text-xs">{r.timestamp || "-"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  };
-
   return (
     <div className="space-y-6">
       <div className="app-card p-6">
@@ -763,9 +567,6 @@ export default function OtelOverview({ onTelemetryData }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [data, setData] = useState(null);
-  const [traceData, setTraceData] = useState(null);
-  const [traceLoading, setTraceLoading] = useState(false);
-  const [traceError, setTraceError] = useState(null);
   const [timeMode, setTimeMode] = useState("quick");
   const [customStartTime, setCustomStartTime] = useState("");
   const [customEndTime, setCustomEndTime] = useState("");
@@ -816,35 +617,6 @@ export default function OtelOverview({ onTelemetryData }) {
       setLoading(false);
     }
   }, [selectedHours, granularityMinutes, timeMode, customStartTime, customEndTime]);
-
-  const fetchTraceData = useCallback(async () => {
-    setTraceLoading(true);
-    setTraceError(null);
-    try {
-      let url = "/api/otel-traces?";
-      if (timeMode === "custom" && customStartTime && customEndTime) {
-        url += `startTime=${encodeURIComponent(customStartTime)}&endTime=${encodeURIComponent(customEndTime)}`;
-      } else {
-        url += `hours=${selectedHours}`;
-      }
-      const res = await fetch(url);
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-      }
-      const json = await res.json();
-      setTraceData(json);
-    } catch (e) {
-      setTraceError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setTraceLoading(false);
-    }
-  }, [selectedHours, timeMode, customStartTime, customEndTime]);
-
-  useEffect(() => {
-    if (pageTab === "trace") {
-      fetchTraceData();
-    }
-  }, [pageTab, fetchTraceData]);
 
   useEffect(() => {
     fetchData();
@@ -1585,7 +1357,6 @@ export default function OtelOverview({ onTelemetryData }) {
       {pageTab === "cost" && renderCostTab()}
       {pageTab === "message" && renderMessageTab()}
       {pageTab === "queue" && renderQueueTab()}
-      {pageTab === "trace" && renderTraceTab()}
     </div>
   );
 }
