@@ -11,6 +11,8 @@ import {
   sessionListRowStableKey,
 } from "../../lib/sreOpenclawSessions.js";
 import useAgui from "../../lib/useAgui.js";
+import { applyChildSessionKeyListFallback } from "../../lib/sreChildSessionProgress.js";
+import { buildSreTaskPlanState, mergeSreTaskPlanPushIntoState } from "../../lib/sreTaskPlanExtract.js";
 import {
   CHAT_SPLIT_HARD_MAX,
   CHAT_SPLIT_MIN,
@@ -144,6 +146,7 @@ export default function SreAgent() {
     status, error, sendMessage, respondConfirm, cancel, reset: resetAgui, hydrateMessages,
     abortSessionFollowUp,
     openSreVizQueueItem,
+    sreTaskPlanPush,
   } = useAgui(agent, { openClawSessionKey: activeOpenClawSessionKey });
 
   /** 保证落地页首条发送在 sessionThreadId 更新后仍调用到最新的 sendMessage（新 HttpAgent/WsAgent） */
@@ -204,6 +207,14 @@ export default function SreAgent() {
   const showChatWorkspace = messages.length > 0 || activeOpenClawSessionKey != null;
 
   const { tabs: sreReportTabs, activeTabId, setActiveTabId } = useSreReportTabs(messages);
+  const sreTaskPlanState = useMemo(
+    () =>
+      applyChildSessionKeyListFallback(
+        mergeSreTaskPlanPushIntoState(buildSreTaskPlanState(messages, toolCalls), sreTaskPlanPush),
+        sreSessionRows,
+      ),
+    [messages, toolCalls, sreTaskPlanPush, sreSessionRows],
+  );
 
   /**
    * 统一的工作区项目点击处理：
@@ -368,6 +379,9 @@ export default function SreAgent() {
       sreReportTabs={sreReportTabs}
       activeTabId={activeTabId}
       setActiveTabId={setActiveTabId}
+      sreTaskPlanState={sreTaskPlanState}
+      sreSessionRows={sreSessionRows}
+      reloadSessions={reloadSessions}
       onExecuteRecommendation={onExecuteRecommendation}
       reportActionsDisabled={isRunning}
     />

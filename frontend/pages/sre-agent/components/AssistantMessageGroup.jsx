@@ -7,6 +7,8 @@ import {
   stripSrePathVizBoilerplateMarkdown,
 } from "../../../lib/sreMessageVizExtract.js";
 import { splitAssistantMessageOnSreReportPaths } from "../../../lib/sreReportPathExtract.js";
+import { splitAssistantMessageOnSreTaskPlans } from "../../../lib/sreTaskPlanExtract.js";
+import SreTaskPlanList from "../../../components/agui/SreTaskPlanList.jsx";
 import { extractParenChoiceGroups, stripParenChoiceBlocks } from "../choiceParsing.js";
 import { normalizeMarkdownForDisplay, stripOpenClawHiddenBlocks } from "../messageDisplayUtils.js";
 import AssistantBubble from "./AssistantBubble.jsx";
@@ -59,6 +61,34 @@ const AssistantMdWithSreReportButtons = memo(function AssistantMdWithSreReportBu
   );
 });
 
+const AssistantMdWithTaskPlanCards = memo(function AssistantMdWithTaskPlanCards({ text, onOpenItem, taskPlans = [] }) {
+  const planMap = useMemo(() => {
+    const map = new Map();
+    for (const plan of taskPlans || []) map.set(plan.id, plan);
+    return map;
+  }, [taskPlans]);
+
+  const segments = useMemo(() => {
+    const raw = String(text ?? "");
+    const sp = splitAssistantMessageOnSreTaskPlans(raw);
+    return sp ? sp.parts : [{ type: "markdown", text: raw }];
+  }, [text]);
+
+  return (
+    <>
+      {segments.map((p, i) => {
+        if (p.type === "markdown") {
+          return p.text.trim() ? (
+            <AssistantMdWithSreReportButtons key={i} text={p.text} onOpenItem={onOpenItem} />
+          ) : null;
+        }
+        const plan = planMap.get(p.planId);
+        return plan ? <SreTaskPlanList key={i} plan={plan} variant="chat" /> : null;
+      })}
+    </>
+  );
+});
+
 const AssistantMessageGroup = memo(function AssistantMessageGroup({
   msg,
   isLast,
@@ -67,6 +97,7 @@ const AssistantMessageGroup = memo(function AssistantMessageGroup({
   setInput,
   inputRef,
   onOpenSreVizItem,
+  sreTaskPlans = [],
 }) {
   const visibleContent = stripOpenClawHiddenBlocks(msg.content);
   const parenGroups = extractParenChoiceGroups(visibleContent);
@@ -100,17 +131,28 @@ const AssistantMessageGroup = memo(function AssistantMessageGroup({
 
   return (
     <div className="space-y-2">
-      {showBubble &&
-        (msg.streaming ? (
-          <AssistantBubble messageId={msg.id} text={bubbleText} streaming />
-        ) : vizSplit ? (
+        {showBubble &&
+          (msg.streaming ? (
+            <>
+              <AssistantBubble messageId={msg.id} text={bubbleText} streaming />
+              {Array.isArray(sreTaskPlans) && sreTaskPlans.length > 0 ? (
+                <div className="flex w-full min-w-0 justify-start">
+                  <div className={`${bubbleShellClass} flex flex-col gap-2`}>
+                    {sreTaskPlans.map((plan) => (
+                      <SreTaskPlanList key={`${plan.id}-${plan.fullId}`} plan={plan} variant="chat" />
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </>
+          ) : vizSplit ? (
           <div className="flex w-full min-w-0 justify-start">
             <div className={`${bubbleShellClass} flex flex-col gap-2`}>
               {vizSplit.parts.map((p, i) =>
                 p.type === "markdown" ? (() => {
                   const cleaned = stripSrePathVizBoilerplateMarkdown(p.text, []);
                   return cleaned.trim() ? (
-                    <AssistantMdWithSreReportButtons key={i} text={cleaned} onOpenItem={onOpenSreVizItem} />
+                    <AssistantMdWithTaskPlanCards key={i} text={cleaned} onOpenItem={onOpenSreVizItem} taskPlans={sreTaskPlans} />
                   ) : null;
                 })() : (
                   <SreVizWorkspaceOpenButton key={i} item={{ kind: "inline", model: p.model }} onOpen={onOpenSreVizItem} />
@@ -122,7 +164,7 @@ const AssistantMessageGroup = memo(function AssistantMessageGroup({
           <div className="flex w-full min-w-0 justify-start">
             <div className={`${bubbleShellClass} flex flex-col gap-2`}>
               {pathOnlySplit.before.trim() ? (
-                <AssistantMdWithSreReportButtons text={pathOnlySplit.before} onOpenItem={onOpenSreVizItem} />
+                <AssistantMdWithTaskPlanCards text={pathOnlySplit.before} onOpenItem={onOpenSreVizItem} taskPlans={sreTaskPlans} />
               ) : null}
               <div className="flex w-full min-w-0 flex-col gap-2">
                 {pathOnlyItems.map((item, i) => (
@@ -130,14 +172,14 @@ const AssistantMessageGroup = memo(function AssistantMessageGroup({
                 ))}
               </div>
               {pathOnlySplit.after.trim() ? (
-                <AssistantMdWithSreReportButtons text={pathOnlySplit.after} onOpenItem={onOpenSreVizItem} />
+                <AssistantMdWithTaskPlanCards text={pathOnlySplit.after} onOpenItem={onOpenSreVizItem} taskPlans={sreTaskPlans} />
               ) : null}
             </div>
           </div>
         ) : (
           <div className="flex w-full min-w-0 justify-start">
             <div className={`${bubbleShellClass} flex flex-col gap-2`}>
-              <AssistantMdWithSreReportButtons text={bubbleText} onOpenItem={onOpenSreVizItem} />
+              <AssistantMdWithTaskPlanCards text={bubbleText} onOpenItem={onOpenSreVizItem} taskPlans={sreTaskPlans} />
             </div>
           </div>
         ))}

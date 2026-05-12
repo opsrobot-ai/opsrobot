@@ -5,7 +5,12 @@ import {
   SRE_USE_WEBSOCKET,
   USE_MOCK,
 } from "../pages/sre-agent/constants.js";
-import { mergeChatWithSessionHistory, runOpenClawSessionFollowUpPoll } from "./sreAgentSessionFollowUp.js";
+import {
+  dedupeConsecutiveDuplicateAssistants,
+  mergeChatWithSessionHistory,
+  mergeStreamingIncrementalSessionTails,
+  runOpenClawSessionFollowUpPoll,
+} from "./sreAgentSessionFollowUp.js";
 import { normalizeConfirmPayload, parseAssistantConfirmSources } from "./aguiConfirmBlock.js";
 import { extractSreVizWorkQueue } from "./sreMessageVizExtract.js";
 import { sreVizModelToPanel } from "./sreVizModelToPanel.js";
@@ -69,6 +74,8 @@ export default function useAgui(agent, options = {}) {
   const [confirm, setConfirm] = useState(null);
   const [status, setStatus] = useState("idle");
   const [error, setError] = useState(null);
+  /** AG-UI CUSTOM `sre_task_plan_update`：`Record<messageId, Record<toolCallId, spawn>>` */
+  const [sreTaskPlanPush, setSreTaskPlanPush] = useState({});
 
   const chatSurfaceActive =
     SRE_USE_WEBSOCKET &&
@@ -101,6 +108,7 @@ export default function useAgui(agent, options = {}) {
         setStatus("running");
         setError(null);
         setSteps([]);
+        setSreTaskPlanPush({});
         break;
       case EventType.RUN_FINISHED:
         setStatus("idle");
@@ -109,27 +117,68 @@ export default function useAgui(agent, options = {}) {
         setStatus("error");
         setError(event.message ?? "Unknown error");
         break;
-      case EventType.STEP_STARTED:
-        setSteps((s) => [...s, {
-          id: event.stepId ?? uid("step"),
-          name: event.stepName,
-          detail: event.detail ?? null,
-          status: "running",
-          ts: Date.now(),
-        }]);
+      case EventType.STEP_STARTED: {
+        const tcId =
+          event.toolCallId != null && String(event.toolCallId).trim() !== ""
+            ? String(event.toolCallId).trim()
+            : null;
+        setSteps((s) => [
+          ...s,
+          {
+            id: tcId ?? event.stepId ?? uid("step"),
+            toolCallId: tcId,
+            name: event.stepName,
+            detail: event.detail ?? null,
+            status: "running",
+            ts: Date.now(),
+          },
+        ]);
         break;
+      }
       case EventType.STEP_FINISHED:
         setSteps((s) => {
+          const now = Date.now();
+          const name = event.stepName;
+          const finishTcId =
+            event.toolCallId != null && String(event.toolCallId).trim() !== ""
+              ? String(event.toolCallId).trim()
+              : null;
+          if (finishTcId) {
+            let targetByTc = -1;
+            for (let i = s.length - 1; i >= 0; i--) {
+              if (s[i].status === "running" && s[i].toolCallId === finishTcId) {
+                targetByTc = i;
+                break;
+              }
+            }
+            if (targetByTc >= 0) {
+              return s.map((st, i) =>
+                i === targetByTc ? { ...st, status: "done", finishedAt: now } : st,
+              );
+            }
+          }
+          // Gateway 可能多次 lifecycle start 叠多条「生成回复」；一次 FINISH 应全部收尾
+          if (name === "生成回复") {
+            const any = s.some(
+              (st) => st.status === "running" && st.name === "生成回复",
+            );
+            if (!any) return s;
+            return s.map((st) =>
+              st.status === "running" && st.name === "生成回复"
+                ? { ...st, status: "done", finishedAt: now }
+                : st,
+            );
+          }
           let target = -1;
           for (let i = s.length - 1; i >= 0; i--) {
-            if (s[i].status === "running" && s[i].name === event.stepName) {
+            if (s[i].status === "running" && s[i].name === name) {
               target = i;
               break;
             }
           }
           if (target < 0) return s;
           return s.map((st, i) =>
-            i === target ? { ...st, status: "done", finishedAt: Date.now() } : st,
+            i === target ? { ...st, status: "done", finishedAt: now } : st,
           );
         });
         break;
@@ -243,12 +292,19 @@ export default function useAgui(agent, options = {}) {
               v.incremental === true ||
               (Array.isArray(v.tailMessages) && v.tailMessages.length > 0);
             setMessages((prev) => {
-              // 有消息正在流式输出时，跳过增量 tail 追加：
-              // 此时 TEXT_MESSAGE_* 通道已在实时输出，session.message 推来的完整版
-              // 与流式 delta 内容相同，强行合并会导致文本重复。
-              if (isIncremental && prev.some((m) => m.streaming)) return prev;
+              // 有消息正在流式输出时，跳过「全文」增量以防正文重复；
+              // 但仍合并纯工具 assistant tail（rawContent 含 toolCall）与 toolResult，否则实时流期间 SRE spawn / 子会话解析缺失。
+              if (isIncremental && prev.some((m) => m.streaming)) {
+                return dedupeConsecutiveDuplicateAssistants(
+                  mergeStreamingIncrementalSessionTails(
+                    prev,
+                    v.tailMessages || [],
+                    v.replaceLastAssistant === true,
+                  ),
+                );
+              }
               if (!isIncremental && !v.detail) return prev;
-              return mergeChatWithSessionHistory(prev, v);
+              return dedupeConsecutiveDuplicateAssistants(mergeChatWithSessionHistory(prev, v));
             });
           }
         } else if (event.name === "workspace") {
@@ -260,6 +316,17 @@ export default function useAgui(agent, options = {}) {
           handleSurfaceUpdate(event.value);
         } else if (event.name === "dataModelUpdate") {
           setAgentState((prev) => ({ ...prev, ...event.value }));
+        } else if (event.name === "sre_task_plan_update") {
+          const v = event.value;
+          const mid = v?.messageId != null ? String(v.messageId).trim() : "";
+          const sp = v?.spawn;
+          const tc = sp?.toolCallId != null ? String(sp.toolCallId).trim() : "";
+          if (!mid || !tc) break;
+          setSreTaskPlanPush((prev) => {
+            const bucket = prev[mid] && typeof prev[mid] === "object" ? { ...prev[mid] } : {};
+            bucket[tc] = { ...(bucket[tc] ?? {}), ...sp, toolCallId: tc };
+            return { ...prev, [mid]: bucket };
+          });
         }
         break;
 
@@ -333,6 +400,7 @@ export default function useAgui(agent, options = {}) {
       setSteps([]);
       setToolCalls({});
       setWorkspacePanels([]);
+      setSreTaskPlanPush({});
       setConfirm(null);
       setStatus("running");
 
@@ -405,6 +473,7 @@ export default function useAgui(agent, options = {}) {
     setAgentState({});
     setWorkspacePanels([]);
     setConfirm(null);
+    setSreTaskPlanPush({});
     setStatus("idle");
     setError(null);
     msgBufRef.current = {};
@@ -499,9 +568,13 @@ export default function useAgui(agent, options = {}) {
     setConfirm(null);
     setError(null);
     setStatus("idle");
+    setSreTaskPlanPush({});
     setMessages(
       (list || []).map((m) => {
-        const role = m.role === "user" || m.role === "assistant" ? m.role : "user";
+        const role =
+          m.role === "user" || m.role === "assistant" || m.role === "toolResult"
+            ? m.role
+            : "user";
         let content = String(m.content ?? "");
         if (role === "assistant") {
           content = parseAssistantConfirmSources(content, () => uid("hist")).cleanText;
@@ -510,6 +583,8 @@ export default function useAgui(agent, options = {}) {
           id: m.id ?? uid("hist"),
           role,
           content,
+          rawContent: m.rawContent ?? m.rawMessage?.content ?? null,
+          rawMessage: m.rawMessage ?? m,
           streaming: false,
         };
       }),
@@ -533,5 +608,6 @@ export default function useAgui(agent, options = {}) {
     abortSessionFollowUp,
     openAssistantMessageInWorkspace,
     openSreVizQueueItem,
+    sreTaskPlanPush,
   };
 }

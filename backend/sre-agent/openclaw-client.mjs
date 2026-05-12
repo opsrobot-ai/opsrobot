@@ -8,6 +8,8 @@
  *   - `agent { stream: "lifecycle", phase: "end" }` 接收运行完成事件
  *
  * 直连模式（OPENCLAW_GATEWAY=false 或非 18789 端口）：回退到 HTTP POST + SSE（/v1/chat/completions）。
+ *
+ * 与 sre-agent-ws 对照排查工具帧：SRE_WS_POLL_TRACE=1 时输出 [sre-gw-agent][trace]。
  */
 
 // ─── SRE Agent System Prompt ─────────────────────────────────────
@@ -16,6 +18,20 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseAssistantConfirmSources } from "../../frontend/lib/aguiConfirmBlock.js";
 import { getGatewayWsClient } from "./openclaw-gateway-ws.mjs";
+
+/** 与 sre-agent-ws 共用：对照 run 路径与 poll 路径的工具帧（SRE_WS_POLL_TRACE=1） */
+const SRE_WS_POLL_TRACE = String(process.env.SRE_WS_POLL_TRACE || "").trim() === "1";
+
+function runAgentTrace(tag, info) {
+  if (!SRE_WS_POLL_TRACE) return;
+  try {
+    const extra =
+      info != null && typeof info === "object" ? JSON.stringify(info) : String(info ?? "");
+    console.log(`[sre-gw-agent][trace] ${tag}${extra ? ` ${extra}` : ""}`);
+  } catch {
+    /* ignore */
+  }
+}
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..", "..");
@@ -349,6 +365,121 @@ const uid = (prefix = "id") => `${prefix}_${Date.now()}_${++_counter}`;
 /** 成功使用过的 Chat Completions 路径，避免重复探测 */
 let _chatCompletionsPath = null;
 
+const FIXED_SRE_SPAWN_AGENT_IDS = ["sre-perception", "sre-analysis", "sre-reasoning", "sre-execution"];
+const SRE_PLAN_ID_CAPTURE_RE = /SRE-(\d{13}-[A-Za-z0-9]{6})/;
+
+function toolNameIsSessionsSpawn(name) {
+  const raw = String(name ?? "").trim().toLowerCase();
+  const normalized = raw.replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  return normalized === "sessions_spawn" || normalized.endsWith("_sessions_spawn");
+}
+
+function agentIdFromSessionsSpawnArgs(args) {
+  const keys = ["agentId", "agent_id", "agent", "targetAgent", "target_agent", "name"];
+  let obj = args;
+  if (typeof args === "string") {
+    try {
+      obj = JSON.parse(args);
+    } catch {
+      obj = null;
+    }
+  }
+  if (obj && typeof obj === "object") {
+    for (const k of keys) {
+      const v = obj[k];
+      if (typeof v === "string" && FIXED_SRE_SPAWN_AGENT_IDS.includes(v)) return v;
+    }
+    try {
+      const s = JSON.stringify(obj);
+      const hit = FIXED_SRE_SPAWN_AGENT_IDS.find((id) => s.includes(id));
+      if (hit) return hit;
+    } catch {
+      /* ignore */
+    }
+  }
+  const flat = typeof args === "string" ? args : "";
+  return FIXED_SRE_SPAWN_AGENT_IDS.find((id) => flat.includes(id)) ?? "";
+}
+
+function planIdFromSessionsSpawnArgs(args) {
+  const raw =
+    typeof args === "string"
+      ? args
+      : args && typeof args === "object"
+        ? JSON.stringify(args)
+        : "";
+  const m = raw.match(SRE_PLAN_ID_CAPTURE_RE);
+  return m ? m[1] : null;
+}
+
+function childSessionKeyFromToolMeta(meta) {
+  const s = String(meta ?? "");
+  const m = s.match(/\bagent:sre-[a-z0-9-]+:[^\s"',}\]]+/i);
+  return m ? m[0] : null;
+}
+
+function emitSreTaskPlanSpawnPush(trackedEmit, messageId, spawn) {
+  trackedEmit({
+    type: EventType.CUSTOM,
+    name: "sre_task_plan_update",
+    value: { messageId, spawn },
+  });
+}
+
+/**
+ * 归一化 Gateway `agent` 事件：tool/lifecycle 的 phase、name 等有时挂在 payload 根上；部分帧不带 runId。
+ * @param {object} payload
+ */
+export function normalizeGatewayAgentPayload(payload) {
+  if (!payload || typeof payload !== "object") {
+    return { stream: undefined, data: {}, runId: undefined, sessionKey: undefined };
+  }
+  let stream = payload.stream;
+  let data =
+    payload.data != null && typeof payload.data === "object" && !Array.isArray(payload.data)
+      ? { ...payload.data }
+      : {};
+
+  // Gateway "item" events are tool calls (phase: start / end / update).
+  // Remap to stream="tool" so downstream handlers stay unchanged.
+  if (stream === "item") {
+    const rawPhase = data.phase ?? payload.phase;
+    if (rawPhase === "update") {
+      // progress tick — no AG-UI equivalent, skip
+      return { stream: undefined, data: {}, runId: payload.runId, sessionKey: payload.sessionKey };
+    }
+    stream = "tool";
+    // "end" in gateway = tool finished, map to "result" for AG-UI
+    data = { ...data, phase: rawPhase === "end" ? "result" : rawPhase };
+  }
+
+  if (stream === "tool") {
+    for (const k of ["phase", "toolCallId", "name", "args", "meta", "isError"]) {
+      if (data[k] == null && payload[k] != null) data[k] = payload[k];
+    }
+  }
+  if (stream === "lifecycle" && data.phase == null && payload.phase != null) {
+    data = { ...data, phase: payload.phase };
+  }
+
+  return {
+    stream,
+    data,
+    runId: payload.runId,
+    sessionKey: payload.sessionKey,
+  };
+}
+
+/** lifecycle end 之后仍会异步下发 tool；卸 handler 前的等待（ms）。可用 env `SRE_GATEWAY_AGENT_TAIL_MS` 覆盖。 */
+function gatewayAgentTailDrainMs() {
+  const raw = process.env.SRE_GATEWAY_AGENT_TAIL_MS;
+  if (raw != null && String(raw).trim() !== "") {
+    const n = Number(String(raw).trim());
+    if (Number.isFinite(n)) return Math.min(Math.max(0, n), 30_000);
+  }
+  return 800;
+}
+
 /**
  * 核心：将用户消息发给 OpenClaw，流式返回 AG-UI 事件
  *
@@ -416,6 +547,8 @@ async function runSreAgentViaWs(input, emit, signal, opts, config, clientRunId, 
   let msgId = uid("msg");
   let messageStarted = false;
   let assistantContent = "";
+  /** 是否收到过 lifecycle start（生成回复）；用于无流式正文时仍发 STEP_FINISHED */
+  let hadGenerateReplyLifecycle = false;
   // track active tool calls: toolCallId → { name, argsStr }
   const activeTools = {};
 
@@ -438,11 +571,52 @@ async function runSreAgentViaWs(input, emit, signal, opts, config, clientRunId, 
   // ── Agent 事件处理器 ───────────────────────────────────────────────────────
 
   const agentHandler = (payload) => {
-    // 按 runId 过滤：仅处理本次 chat.send 发起的 run 的事件
-    if (!serverRunId || payload?.runId !== serverRunId) return;
+    if (!serverRunId) {
+      if (SRE_WS_POLL_TRACE) {
+        const n = normalizeGatewayAgentPayload(payload);
+        runAgentTrace("skip-no-serverRunId", { stream: n.stream, phase: n.data?.phase, tool: n.data?.name });
+      }
+      return;
+    }
 
-    const stream = payload?.stream;
-    const data = payload?.data ?? {};
+    const norm = normalizeGatewayAgentPayload(payload);
+    const stream = norm.stream;
+    const data = norm.data;
+
+    const prid = norm.runId;
+    const skPay = norm.sessionKey != null ? String(norm.sessionKey).trim() : "";
+    const skExp = String(sessionKey ?? "").trim();
+    const sessionOk = !skPay || skPay.toLowerCase() === skExp.toLowerCase();
+
+    // 若干网关版本的 tool 帧不带 runId，原先 `payload.runId !== serverRunId` 会把 undefined 当成不匹配而整帧丢弃。
+    if (prid != null && prid !== "" && prid !== serverRunId) {
+      if (SRE_WS_POLL_TRACE && stream === "tool") {
+        runAgentTrace("run-tool-drop-runid-mismatch", {
+          prid,
+          serverRunId,
+          phase: data?.phase,
+          tool: data?.name,
+          sessionOk,
+        });
+      }
+      return;
+    }
+    if ((prid == null || prid === "") && !sessionOk) {
+      if (SRE_WS_POLL_TRACE && stream === "tool") {
+        runAgentTrace("run-tool-drop-no-session", { skPay, skExp, phase: data?.phase, tool: data?.name });
+      }
+      return;
+    }
+
+    if (SRE_WS_POLL_TRACE && stream === "tool") {
+      runAgentTrace("run-tool-accepted", {
+        phase: data?.phase,
+        tool: data?.name,
+        toolCallId: data?.toolCallId,
+        runId: prid || serverRunId,
+        paySk: skPay,
+      });
+    }
 
     // 流式文本 delta
     if (stream === "assistant" && data.delta) {
@@ -472,9 +646,24 @@ async function runSreAgentViaWs(input, emit, signal, opts, config, clientRunId, 
       });
       trackedEmit({
         type: EventType.STEP_STARTED,
+        toolCallId: tcId,
         stepName: `调用 ${data.name || "tool"}`,
         detail: `执行工具: ${data.name || "tool"}`,
       });
+      if (toolNameIsSessionsSpawn(data.name)) {
+        const agentId = agentIdFromSessionsSpawnArgs(data.args ?? {});
+        const planId = planIdFromSessionsSpawnArgs(data.args ?? {});
+        if (agentId) {
+          emitSreTaskPlanSpawnPush(trackedEmit, msgId, {
+            toolCallId: tcId,
+            agentId,
+            planId,
+            childSessionKey: null,
+            phase: "start",
+            startedAt: Date.now(),
+          });
+        }
+      }
       return;
     }
 
@@ -482,6 +671,7 @@ async function runSreAgentViaWs(input, emit, signal, opts, config, clientRunId, 
     if (stream === "tool" && data.phase === "result") {
       const tcId = data.toolCallId || Object.keys(activeTools).at(-1) || uid("tc");
       const toolName = activeTools[tcId]?.name || data.name || "tool";
+      const spawnArgsStr = activeTools[tcId]?.args;
       delete activeTools[tcId];
       trackedEmit({ type: EventType.TOOL_CALL_END, toolCallId: tcId });
       trackedEmit({
@@ -490,12 +680,30 @@ async function runSreAgentViaWs(input, emit, signal, opts, config, clientRunId, 
         messageId: uid("tool"),
         content: data.isError ? `[ERROR] ${data.meta || ""}` : (data.meta || "completed"),
       });
-      trackedEmit({ type: EventType.STEP_FINISHED, stepName: `调用 ${toolName}` });
+      trackedEmit({ type: EventType.STEP_FINISHED, toolCallId: tcId, stepName: `调用 ${toolName}` });
+      if (toolNameIsSessionsSpawn(toolName)) {
+        const agentId =
+          agentIdFromSessionsSpawnArgs(spawnArgsStr ?? "{}") ||
+          agentIdFromSessionsSpawnArgs(String(data.meta ?? ""));
+        const planId = planIdFromSessionsSpawnArgs(spawnArgsStr ?? "{}");
+        const childSessionKey = childSessionKeyFromToolMeta(data.meta);
+        if (agentId || childSessionKey) {
+          emitSreTaskPlanSpawnPush(trackedEmit, msgId, {
+            toolCallId: tcId,
+            agentId,
+            planId,
+            childSessionKey,
+            phase: "result",
+            resultAt: Date.now(),
+          });
+        }
+      }
       return;
     }
 
     // 生命周期：start
     if (stream === "lifecycle" && data.phase === "start") {
+      hadGenerateReplyLifecycle = true;
       trackedEmit({ type: EventType.STEP_STARTED, stepName: "生成回复", detail: "Agent 正在处理" });
       return;
     }
@@ -531,21 +739,17 @@ async function runSreAgentViaWs(input, emit, signal, opts, config, clientRunId, 
       signal.addEventListener("abort", abortListener, { once: true });
     }
 
-    // 等待 agent 完成
+    // 等待 agent 完成（lifecycle end）；网关仍可能在同一 runId 下异步下发 stream:"tool"，切勿在此处立刻卸下 handler。
     const result = await runDone;
     clearTimeout(timeoutTimer);
     if (abortListener) signal?.removeEventListener("abort", abortListener);
 
-    // 清理
-    gwWs.removeEventHandler("agent", agentHandler);
-    // 不调用 unsubscribe：session.message 订阅由 _sreSessionMsgHandler（sre-agent-ws.mjs）独立管理
-    // 若此处 unsubscribe，会终止 _sreSessionMsgHandler 的实时推送，导致 RUN_FINISHED 后会话停止更新
-
     if (result?.aborted) {
+      gwWs.removeEventHandler("agent", agentHandler);
       return { ok: false, aborted: true };
     }
 
-    // 收尾文本消息
+    // 收尾文本消息 + 「生成回复」步骤收尾（无正文但有过 lifecycle 时也需 FINISH，否则步骤永久 loading）
     if (messageStarted) {
       const { cleanText, confirmPayload } = parseAssistantConfirmSources(
         assistantContent,
@@ -557,15 +761,25 @@ async function runSreAgentViaWs(input, emit, signal, opts, config, clientRunId, 
       trackedEmit({ type: EventType.TEXT_MESSAGE_END, messageId: msgId });
       trackedEmit({ type: EventType.STEP_FINISHED, stepName: "生成回复" });
       _lastContentBuffer = cleanText;
+    } else if (hadGenerateReplyLifecycle) {
+      trackedEmit({ type: EventType.STEP_FINISHED, stepName: "生成回复" });
     }
 
     // if (!hasWorkspacePanel) {
     //   emitFallbackWorkspacePanel(trackedEmit);
     // }
 
+    // 再给网关留窗口：spawn 等工具帧常在 lifecycle end / 正文收尾之后才到达；须先保留 agent handler 才能收到 TOOL_CALL。
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setTimeout(r, gatewayAgentTailDrainMs()));
+
+    gwWs.removeEventHandler("agent", agentHandler);
+    // 不调用 unsubscribe：session.message 订阅由 _sreSessionMsgHandler（sre-agent-ws.mjs）独立管理
+
     if (!opts?.suppressRunFinished) {
       trackedEmit({ type: EventType.RUN_FINISHED, threadId, runId: clientRunId });
     }
+
     return { ok: true, threadId, runId: clientRunId };
   } catch (err) {
     clearTimeout(timeoutTimer);
@@ -811,6 +1025,7 @@ async function processStreamResponse(response, emit, config, chatMessages, signa
             });
             emit({
               type: EventType.STEP_STARTED,
+              toolCallId: buf.id,
               stepName: `调用 ${buf.name}`,
               detail: `执行工具: ${buf.name}`,
             });
@@ -859,7 +1074,7 @@ async function processStreamResponse(response, emit, config, chatMessages, signa
         messageId: uid("tool"),
         content: result,
       });
-      emit({ type: EventType.STEP_FINISHED, stepName: `调用 ${buf.name}` });
+      emit({ type: EventType.STEP_FINISHED, toolCallId: buf.id, stepName: `调用 ${buf.name}` });
 
       // Push workspace panel based on tool result
       emitWorkspacePanel(buf.name, buf.args, result, emit);

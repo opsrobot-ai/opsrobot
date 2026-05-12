@@ -16,7 +16,7 @@ export const SRE_REPORT_CONFIGS = [
 ];
 
 /** 提取 sessionId（SRE-{13d}-{6c}）的正则 */
-export const SRE_SESSION_ID_RE = /SRE-(\d{13})-([A-Z0-9]{6})/;
+export const SRE_SESSION_ID_RE = /SRE-(\d{13})-([A-Za-z0-9]{6})/;
 
 /** 允许的报告文件后缀（小写） */
 const ALLOWED_SUFFIXES = SRE_REPORT_CONFIGS.map((c) => c.suffix.toLowerCase());

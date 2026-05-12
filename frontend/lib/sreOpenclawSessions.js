@@ -236,6 +236,15 @@ export function messageContentToString(content) {
   }
 }
 
+/** assistant content 块数组中是否含需保留的工具调用块（纯工具气泡无 text 时也不能丢，否则 SRE spawn 解析失败） */
+export function assistantContentHasToolInvocationBlocks(content) {
+  if (!Array.isArray(content)) return false;
+  return content.some((b) => {
+    const t = b?.type;
+    return t === "toolCall" || t === "tool_use";
+  });
+}
+
 /**
  * 从 OpenClaw 单会话详情 JSON 中尽量提取 user/assistant 消息，供左侧气泡展示
  */
@@ -267,15 +276,19 @@ export function messagesFromOpenClawSessionDetail(detail) {
   for (let i = 0; i < raw.length; i++) {
     const m = raw[i];
     if (!m || typeof m !== "object") continue;
-    let role = m.role === "assistant" || m.role === "user" ? m.role : null;
+    let role = m.role === "assistant" || m.role === "user" || m.role === "toolResult" ? m.role : null;
     if (!role && (m.text != null || m.body != null)) role = "assistant";
     if (!role) continue;
     const text = messageContentToString(m.content);
-    if (!text.trim()) continue;
+    const keepAssistantTools =
+      role === "assistant" && assistantContentHasToolInvocationBlocks(m.content);
+    if (!text.trim() && role !== "toolResult" && !keepAssistantTools) continue;
     out.push({
       id: pickStr(m.id) || uid("hist"),
       role,
       content: text,
+      rawContent: m.content,
+      rawMessage: m,
       streaming: false,
     });
   }

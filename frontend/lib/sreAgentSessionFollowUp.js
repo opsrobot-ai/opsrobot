@@ -2,6 +2,7 @@ import { stripOpenClawHiddenBlocks } from "../pages/sre-agent/messageDisplayUtil
 import { parseAssistantConfirmSources } from "./aguiConfirmBlock.js";
 import { uid } from "./agui.js";
 import {
+  assistantContentHasToolInvocationBlocks,
   computeGatewaySessionKeyForChat,
   fetchOpenClawSessionDetail,
   messageContentToString,
@@ -26,10 +27,143 @@ function canonicalAssistantText(m) {
 
 function normalizeMsg(m) {
   if (!m || typeof m !== "object") return "";
+  if (m.role === "toolResult") {
+    const tid = String(m.toolCallId ?? m.rawMessage?.toolCallId ?? "").trim();
+    const tx = rawTextFromMessage(m);
+    return `toolResult|${tid}|${tx}`;
+  }
   const role = m.role === "assistant" || m.role === "user" ? m.role : "";
   if (!role) return "";
   const content = role === "assistant" ? canonicalAssistantText(m) : canonicalUserText(m);
   return `${role}|${content}`;
+}
+
+function normalizeAssistantFingerprint(m) {
+  if (!m || m.role !== "assistant") return "";
+  return canonicalAssistantText(m)
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/[\u200b-\u200d\ufeff\u2060]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * 折叠相邻且正文实质相同的 assistant，修复 Gateway 多次推送同一环境感知/总结造成的双气泡。
+ */
+export function dedupeConsecutiveDuplicateAssistants(messages) {
+  if (!Array.isArray(messages) || messages.length < 2) return messages;
+  const out = [messages[0]];
+  let changed = false;
+  for (let i = 1; i < messages.length; i++) {
+    const m = messages[i];
+    const last = out[out.length - 1];
+    if (m?.role === "assistant" && last?.role === "assistant") {
+      const pa = normalizeAssistantFingerprint(last);
+      const pb = normalizeAssistantFingerprint(m);
+      if (pa && pb) {
+        if (pa === pb) {
+          out[out.length - 1] = {
+            ...last,
+            ...m,
+            content: m.content,
+            rawContent: m.rawContent ?? last.rawContent,
+            rawMessage: m.rawMessage ?? last.rawMessage,
+            streaming: false,
+            id: last.id || m.id,
+            streamKey: last.streamKey ?? m.streamKey ?? null,
+          };
+          changed = true;
+          continue;
+        }
+        if (pb.startsWith(pa) && pb.length > pa.length) {
+          out[out.length - 1] = {
+            ...last,
+            ...m,
+            content: m.content,
+            rawContent: m.rawContent ?? last.rawContent,
+            rawMessage: m.rawMessage ?? last.rawMessage,
+            streaming: false,
+            id: last.id || m.id,
+            streamKey: last.streamKey ?? m.streamKey ?? null,
+          };
+          changed = true;
+          continue;
+        }
+        if (pa.startsWith(pb) && pa.length >= pb.length) {
+          changed = true;
+          continue;
+        }
+      }
+    }
+    out.push(m);
+  }
+  return changed ? out : messages;
+}
+
+/**
+ * 将已有 assistant 与 tail 中「正文实质相同」的条目合并，避免流式结束前后多次 session.message 推送重复气泡。
+ */
+function mergeAssistantDuplicateInPlace(loc, row) {
+  const inc = normalizeAssistantFingerprint(row);
+  if (!inc) return false;
+  for (let i = loc.length - 1; i >= 0; i--) {
+    const m = loc[i];
+    if (m?.role !== "assistant") continue;
+    const prev = normalizeAssistantFingerprint(m);
+    if (!prev) continue;
+    if (prev === inc) {
+      loc[i] = {
+        ...m,
+        ...row,
+        content: row.content,
+        rawContent: row.rawContent ?? m.rawContent,
+        rawMessage: row.rawMessage ?? m.rawMessage,
+        streaming: false,
+        id: m.id || row.id,
+        streamKey: m.streamKey ?? row.streamKey ?? null,
+      };
+      return true;
+    }
+    if (inc.startsWith(prev) && inc.length > prev.length) {
+      loc[i] = {
+        ...m,
+        ...row,
+        content: row.content,
+        rawContent: row.rawContent ?? m.rawContent,
+        rawMessage: row.rawMessage ?? m.rawMessage,
+        streaming: false,
+        id: m.id || row.id,
+        streamKey: m.streamKey ?? row.streamKey ?? null,
+      };
+      return true;
+    }
+    if (prev.startsWith(inc) && prev.length >= inc.length) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function dedupeAssistantTailAgainstLocal(localMessages, tail) {
+  if (!Array.isArray(tail) || !tail.length) return tail;
+  const seen = new Set();
+  for (const m of localMessages) {
+    const f = normalizeAssistantFingerprint(m);
+    if (f) seen.add(f);
+  }
+  const out = [];
+  for (const m of tail) {
+    if (m?.role !== "assistant") {
+      out.push(m);
+      continue;
+    }
+    const f = normalizeAssistantFingerprint(m);
+    if (f && seen.has(f)) continue;
+    if (f) seen.add(f);
+    out.push(m);
+  }
+  return out;
 }
 
 /**
@@ -37,12 +171,14 @@ function normalizeMsg(m) {
  */
 function mergeIncrementalTail(localMessages, tailMessages, replaceLastAssistant = false) {
   let loc = [...localMessages];
-  for (const tm of tailMessages) {
+  tailLoop: for (const tm of tailMessages) {
     const content =
       typeof tm.content === "string" ? tm.content : messageContentToString(tm.content);
     const row = {
       ...tm,
       content,
+      rawContent: tm.rawContent ?? tm.content,
+      rawMessage: tm.rawMessage ?? tm,
       id: tm.id && String(tm.id).trim() ? tm.id : uid("sess"),
       streaming: false,
     };
@@ -72,17 +208,127 @@ function mergeIncrementalTail(localMessages, tailMessages, replaceLastAssistant 
         loc[replaceIdx] = {
           ...base,
           content: row.content,
+          rawContent: row.rawContent ?? base.rawContent,
+          rawMessage: row.rawMessage ?? base.rawMessage,
           streaming: false,
           streamKey: base.streamKey ?? row.streamKey ?? null,
         };
       } else {
+        if (row.role === "assistant" && mergeAssistantDuplicateInPlace(loc, row)) continue tailLoop;
         loc.push(row);
       }
     } else {
+      if (row.role === "assistant" && mergeAssistantDuplicateInPlace(loc, row)) continue tailLoop;
       loc.push(row);
     }
   }
-  return loc;
+  return dedupeConsecutiveDuplicateAssistants(loc);
+}
+
+function appendAssistantToolBlocks(prevMsg, tailMsg) {
+  const incoming = tailMsg.rawContent ?? tailMsg.content;
+  if (!Array.isArray(incoming)) return prevMsg;
+  const additions = incoming.filter(
+    (b) =>
+      b &&
+      typeof b === "object" &&
+      (b.type === "toolCall" || b.type === "tool_use"),
+  );
+  if (!additions.length) return prevMsg;
+
+  const base = Array.isArray(prevMsg.rawContent)
+    ? [...prevMsg.rawContent]
+    : prevMsg.rawContent != null
+      ? [prevMsg.rawContent]
+      : [];
+  const seen = new Set(
+    base
+      .filter((b) => b?.type === "toolCall" || b?.type === "tool_use")
+      .map((b) => String(b.id ?? b.toolCallId ?? ""))
+      .filter(Boolean),
+  );
+  for (const b of additions) {
+    const id = String(b.id ?? b.toolCallId ?? "");
+    if (id && seen.has(id)) continue;
+    if (id) seen.add(id);
+    base.push(b);
+  }
+  return {
+    ...prevMsg,
+    rawContent: base,
+    rawMessage: tailMsg.rawMessage ?? prevMsg.rawMessage,
+  };
+}
+
+/**
+ * 流式输出进行中时 Gateway 仍会推送含 toolCall 块的 assistant tail（扁平正文为空）。
+ * 把它们并入当前 streaming 的 assistant，供 extractSreSpawnEventsFromMessages 使用。
+ */
+function mergeIncrementalToolTailsIntoStreamingAssistants(localMessages, tailMessages) {
+  if (!Array.isArray(tailMessages) || !tailMessages.length) return localMessages;
+  let next = localMessages;
+  let changed = false;
+  for (const tm of tailMessages) {
+    const rc = tm.rawContent ?? tm.content;
+    if (!assistantContentHasToolInvocationBlocks(Array.isArray(rc) ? rc : [])) continue;
+
+    const skTail = String(tm.streamKey ?? "").trim();
+    let idx = -1;
+    if (skTail) {
+      for (let i = next.length - 1; i >= 0; i--) {
+        const m = next[i];
+        if (m?.role !== "assistant" || !m.streaming) continue;
+        if (String(m.streamKey ?? "").trim() === skTail) {
+          idx = i;
+          break;
+        }
+      }
+    }
+    if (idx < 0) {
+      for (let i = next.length - 1; i >= 0; i--) {
+        if (next[i]?.role === "assistant" && next[i]?.streaming) {
+          idx = i;
+          break;
+        }
+      }
+    }
+    if (idx < 0) continue;
+
+    const merged = appendAssistantToolBlocks(next[idx], tm);
+    if (merged !== next[idx]) {
+      next = [...next.slice(0, idx), merged, ...next.slice(idx + 1)];
+      changed = true;
+    }
+  }
+  return changed ? next : localMessages;
+}
+
+/**
+ * 存在 streaming 气泡时仍合并：含结构化工具块的 assistant tail + toolResult（不全量合并以防正文重复）。
+ */
+export function mergeStreamingIncrementalSessionTails(
+  localMessages,
+  tailMessages,
+  replaceLastAssistant = false,
+) {
+  if (!Array.isArray(localMessages) || !tailMessages?.length) return localMessages;
+
+  const assistantToolTails = tailMessages.filter((tm) => {
+    if (tm?.role !== "assistant") return false;
+    const rc = tm.rawContent ?? tm.content;
+    return assistantContentHasToolInvocationBlocks(Array.isArray(rc) ? rc : []);
+  });
+
+  let loc = assistantToolTails.length
+    ? mergeIncrementalToolTailsIntoStreamingAssistants(localMessages, assistantToolTails)
+    : localMessages;
+
+  const toolResultTails = tailMessages.filter((tm) => tm?.role === "toolResult");
+  if (toolResultTails.length) {
+    loc = mergeIncrementalTail(loc, toolResultTails, replaceLastAssistant);
+  }
+
+  return dedupeConsecutiveDuplicateAssistants(loc);
 }
 
 /**
@@ -118,12 +364,13 @@ export function mergeChatWithSessionHistory(localMessages, payload) {
   }
 
   if (prefix === localMessages.length && remote.length > localMessages.length) {
-    const tail = remote.slice(localMessages.length).map((m) => ({
+    let tail = remote.slice(localMessages.length).map((m) => ({
       ...m,
       id: m.id && String(m.id).trim() ? m.id : uid("sess"),
       streaming: false,
     }));
-    return [...localMessages, ...tail];
+    tail = dedupeAssistantTailAgainstLocal(localMessages, tail);
+    return dedupeConsecutiveDuplicateAssistants([...localMessages, ...tail]);
   }
 
   if (
@@ -138,12 +385,17 @@ export function mergeChatWithSessionHistory(localMessages, payload) {
       const sl = canonicalAssistantText(L);
       const sr = canonicalAssistantText(R);
       if (sr.length > sl.length && sr.startsWith(sl)) {
-        const next = [...localMessages.slice(0, i), { ...L, content: R.content, streaming: false }];
-        return next;
+        return dedupeConsecutiveDuplicateAssistants([
+          ...localMessages.slice(0, i),
+          { ...L, ...R, content: R.content, streaming: false },
+        ]);
       }
       // Gateway 可能改写同一条 assistant（非前缀扩展），以远端为准
       if (normalizeMsg(L) !== normalizeMsg(R)) {
-        return [...localMessages.slice(0, i), { ...L, content: R.content, streaming: false }];
+        return dedupeConsecutiveDuplicateAssistants([
+          ...localMessages.slice(0, i),
+          { ...L, ...R, content: R.content, streaming: false },
+        ]);
       }
     }
     return localMessages;
@@ -157,16 +409,17 @@ export function mergeChatWithSessionHistory(localMessages, payload) {
       const sl = canonicalAssistantText(L);
       const sr = canonicalAssistantText(R);
       if (sr.length >= sl.length && sr.startsWith(sl)) {
-        const head = [...localMessages.slice(0, i), { ...L, content: R.content, streaming: false }];
+        const head = [...localMessages.slice(0, i), { ...L, ...R, content: R.content, streaming: false }];
         if (remote.length > localMessages.length) {
-          const tail = remote.slice(localMessages.length).map((m) => ({
+          let tail = remote.slice(localMessages.length).map((m) => ({
             ...m,
             id: m.id && String(m.id).trim() ? m.id : uid("sess"),
             streaming: false,
           }));
-          return [...head, ...tail];
+          tail = dedupeAssistantTailAgainstLocal(head, tail);
+          return dedupeConsecutiveDuplicateAssistants([...head, ...tail]);
         }
-        return head;
+        return dedupeConsecutiveDuplicateAssistants(head);
       }
     }
   }
@@ -182,17 +435,18 @@ export function mergeChatWithSessionHistory(localMessages, payload) {
     const L = localMessages[i];
     const R = remote[i];
     if (L && R && (L.role === "user" || L.role === "assistant") && L.role === R.role) {
-      const head = [...localMessages.slice(0, i), { ...L, content: R.content, streaming: false }];
+      const head = [...localMessages.slice(0, i), { ...L, ...R, content: R.content, streaming: false }];
       if (remote.length > localMessages.length) {
-        const tail = remote.slice(localMessages.length).map((m) => ({
+        let tail = remote.slice(localMessages.length).map((m) => ({
           ...m,
           id: m.id && String(m.id).trim() ? m.id : uid("sess"),
           streaming: false,
         }));
-        return [...head, ...tail];
+        tail = dedupeAssistantTailAgainstLocal(head, tail);
+        return dedupeConsecutiveDuplicateAssistants([...head, ...tail]);
       }
       if (normalizeMsg(L) !== normalizeMsg(R)) {
-        return head;
+        return dedupeConsecutiveDuplicateAssistants(head);
       }
     }
   }
@@ -208,11 +462,13 @@ export function mergeChatWithSessionHistory(localMessages, payload) {
       }
     }
     if (suffixOk) {
-      return remote.map((m) => ({
-        ...m,
-        id: m.id && String(m.id).trim() ? m.id : uid("sess"),
-        streaming: false,
-      }));
+      return dedupeConsecutiveDuplicateAssistants(
+        remote.map((m) => ({
+          ...m,
+          id: m.id && String(m.id).trim() ? m.id : uid("sess"),
+          streaming: false,
+        })),
+      );
     }
   }
 
@@ -264,7 +520,7 @@ export async function runOpenClawSessionFollowUpPoll({
     }
 
     const prev = getMessages();
-    const merged = mergeChatWithSessionHistory(prev, detail);
+    const merged = dedupeConsecutiveDuplicateAssistants(mergeChatWithSessionHistory(prev, detail));
     const changed = merged !== prev;
     if (changed) {
       setMessages(merged);

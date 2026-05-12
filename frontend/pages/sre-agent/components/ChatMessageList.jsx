@@ -101,6 +101,7 @@ export default function ChatMessageList({
   inputRef,
   respondConfirm,
   onOpenSreVizItem,
+  sreTaskPlansByMessageId,
 }) {
   const scrollRef = useRef(null);
   /** 包住列表根节点：ResizeObserver / MutationObserver 捕获 Markdown 内部 DOM 变化 */
@@ -297,7 +298,11 @@ export default function ChatMessageList({
                 {injectThinking ? (
                   <div className="px-1">
                     {turnThinking.showPanel ? (
-                      <AgentThinkingPanel steps={steps} isRunning={isRunning} />
+                      <AgentThinkingPanel
+                        steps={steps}
+                        isRunning={isRunning}
+                        awaitingSessionText
+                      />
                     ) : (
                       <ThinkingStreamBar active />
                     )}
@@ -317,6 +322,7 @@ export default function ChatMessageList({
               setInput={setInput}
               inputRef={inputRef}
               onOpenSreVizItem={onOpenSreVizItem}
+              sreTaskPlans={sreTaskPlansByMessageId?.[msg.id] ?? []}
             />
           );
           })}

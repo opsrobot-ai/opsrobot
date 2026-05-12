@@ -35,9 +35,15 @@ export default function SreAgentChatWorkspace({
   sreReportTabs,
   activeTabId,
   setActiveTabId,
+  sreTaskPlanState,
+  sreSessionRows = [],
+  reloadSessions,
   onExecuteRecommendation,
   reportActionsDisabled = false,
 }) {
+  const hasRunningSreTask = sreTaskPlanState?.latestPlan?.tasks?.some((t) => t.status === "running") === true;
+  const showSreReportWorkspace = (sreReportTabs && sreReportTabs.length > 0) || hasRunningSreTask;
+
   return (
     <div
       ref={chatSplitContainerRef}
@@ -99,6 +105,7 @@ export default function SreAgentChatWorkspace({
           inputRef={inputRef}
           respondConfirm={respondConfirm}
           onOpenSreVizItem={onOpenSreVizItem}
+          sreTaskPlansByMessageId={sreTaskPlanState?.byMessageId}
         />
 
         <div className="p-3">
@@ -123,13 +130,16 @@ export default function SreAgentChatWorkspace({
       />
 
       <div className="min-w-0 flex-1 overflow-hidden bg-gray-100/50 dark:bg-gray-950/50">
-        {sreReportTabs && sreReportTabs.length > 0 ? (
+        {showSreReportWorkspace ? (
           <SreReportWorkspace
             tabs={sreReportTabs}
             activeTabId={activeTabId}
             setActiveTabId={setActiveTabId}
             onExecuteRecommendation={onExecuteRecommendation}
             reportActionsDisabled={reportActionsDisabled}
+            taskPlan={sreTaskPlanState?.latestPlan}
+            sessionRows={sreSessionRows}
+            reloadSessions={reloadSessions}
           />
         ) : (
           <div className="h-full overflow-y-auto p-5">
