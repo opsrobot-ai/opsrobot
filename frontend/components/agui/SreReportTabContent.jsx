@@ -30,6 +30,7 @@ import { SreVizAnomalyPattern } from "./sre-viz/SreVizAnomalyPattern.jsx";
 import { Stage1AttachmentVizCards } from "./Stage1AttachmentVizCards.jsx";
 import { Stage2AttachmentVizCards } from "./Stage2AttachmentVizCards.jsx";
 import { Stage3AttachmentVizCards } from "./Stage3AttachmentVizCards.jsx";
+import SreStageContentJsonPanel from "./SreStageContentJsonPanel.jsx";
 
 // ─── 阶段 header 配色 ────────────────────────────────────────────
 const STAGE_HEADER = {
@@ -1190,6 +1191,14 @@ function SectionShell({ heading, level, accent, children }) {
 // ─── 主组件 ──────────────────────────────────────────────────────
 
 export function SreReportTabContent({ tab, onExecuteRecommendation, reportActionsDisabled = false }) {
+  if (tab.viewKind === "stage_json" && tab.stageJson) {
+    return (
+      <div className="space-y-3">
+        <SreStageContentJsonPanel sourcePath={tab.path} stageJson={tab.stageJson} stage={tab.stage} />
+      </div>
+    );
+  }
+
   const meta = STAGE_HEADER[tab.stage] ?? STAGE_HEADER.stage1;
   const accent = meta.accent;
 

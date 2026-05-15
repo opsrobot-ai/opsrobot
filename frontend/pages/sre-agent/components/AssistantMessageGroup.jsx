@@ -25,7 +25,7 @@ const bubbleShellClass =
 
 /**
  * 将正文中 5 种 SRE 阶段报告路径替换为可点击 Tab 跳转按钮，其余走 XMarkdown。
- * 覆盖 stage1-4 + final（含原 final_report.md 场景）。
+ * 覆盖 stage1-4 + final（终稿：*_stage5_final_content.json，兼容 *_final_report.md）。
  */
 const AssistantMdWithSreReportButtons = memo(function AssistantMdWithSreReportButtons({ text, onOpenItem }) {
   const segments = useMemo(() => {

@@ -18,7 +18,7 @@ export function mergeTopologyNodeColors(chartConfig) {
 
 export function topologyNodeAccent(colors, node) {
   const st = String(node?.status || node?.health_status || "").toLowerCase();
-  if (st === "anomaly") return colors.anomaly;
+  if (st === "anomaly" || st === "critical") return colors.anomaly;
   if (st === "degraded") return colors.degraded;
   if (st === "slow") return colors.slow;
   if (st === "normal") return colors.normal;
@@ -33,6 +33,7 @@ export function topologyNodeAccent(colors, node) {
 export function topologyDisplayStatusLabel(node) {
   const st = String(node?.status || node?.health_status || "").toLowerCase();
   if (st === "anomaly") return "紧急";
+  if (st === "critical") return "致命";
   if (st === "degraded") return "严重";
   if (st === "slow") return "重要";
   if (st === "normal") return "正常";

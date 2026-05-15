@@ -23,7 +23,7 @@ function mergeTopologyChartConfig(cc) {
   return { ...DEFAULT_TOPO_CHART_CONFIG, ...c };
 }
 
-export function SreVizTopologyMap({ panel }) {
+export function SreVizTopologyMap({ panel, embedded = false }) {
   const raw = panel?.payload && typeof panel.payload === "object" ? panel.payload : {};
   const { model, nodes, edges } = useMemo(() => normalizeTopologyMapModel(raw), [raw]);
   const fp = model.fault_propagation;
@@ -41,8 +41,8 @@ export function SreVizTopologyMap({ panel }) {
   const title = String(model.title || model.incident_id || "拓扑").trim() || "拓扑";
   const description = String(model.description || "").trim();
 
-  return (
-    <Shell title={title} accent="rose">
+  const inner = (
+    <>
       {description ? (
         <p className="mb-2 text-[11px] leading-relaxed text-gray-600 dark:text-gray-300">{description}</p>
       ) : null}
@@ -89,7 +89,7 @@ export function SreVizTopologyMap({ panel }) {
       {Array.isArray(fp?.timeline) && fp.timeline.length > 0 && (
         <div className="mt-4 border-t border-gray-100 pt-3 dark:border-gray-700">
           <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">异常时间窗</p>
-          <div className="overflow-x-auto rounded-lg border border-gray-100 dark:border-gray-700">
+          <div className="overflow-x-auto rounded-xl border border-gray-100 bg-white shadow-sm ring-1 ring-black/[0.03] dark:border-gray-700 dark:bg-gray-950/30 dark:ring-white/[0.04]">
             <table className="w-full min-w-[520px] border-collapse text-left text-[11px]">
               <thead>
                 <tr className="border-b border-gray-200 bg-gray-50/90 text-[10px] uppercase text-gray-500 dark:border-gray-600 dark:bg-gray-800/80 dark:text-gray-400">
@@ -153,6 +153,12 @@ export function SreVizTopologyMap({ panel }) {
       {!nodes.length && !edges.length && !pathSegments.length && !(Array.isArray(fp?.timeline) && fp.timeline.length) && (
         <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">暂无拓扑数据</p>
       )}
-    </Shell>
+    </>
   );
+
+  if (embedded) {
+    return <div className="space-y-3 sm:space-y-4">{inner}</div>;
+  }
+
+  return <Shell title={title} accent="rose">{inner}</Shell>;
 }

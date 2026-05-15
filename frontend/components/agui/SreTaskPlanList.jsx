@@ -53,11 +53,23 @@ function normalizeDetails(details) {
     .filter(Boolean);
 }
 
+/** 去掉连续重复行（规划正文或模型输出可能带重复换行） */
+function dedupeConsecutiveLines(lines) {
+  return lines.filter((line, i) => i === 0 || line !== lines[i - 1]);
+}
+
 function taskDetailLines(task) {
-  const lines = normalizeDetails(task?.details);
+  const lines = dedupeConsecutiveLines(normalizeDetails(task?.details));
   if (task?.spawnToolCallId) lines.push(`工具调用：${task.spawnToolCallId}`);
   if (task?.childSessionKey) lines.push(`子会话：${task.childSessionKey}`);
   return lines;
+}
+
+function taskDetailsSummaryLine(details) {
+  return String(details ?? "")
+    .split(/\r?\n/)
+    .map((s) => s.trim())
+    .find(Boolean);
 }
 
 export default function SreTaskPlanList({ plan, variant = "chat", className = "" }) {
@@ -136,6 +148,7 @@ export default function SreTaskPlanList({ plan, variant = "chat", className = ""
           const open = openKeys.has(task.key);
           const meta = STATUS_META[task.status] ?? STATUS_META.pending;
           const details = taskDetailLines(task);
+          const summary = taskDetailsSummaryLine(task.details);
           return (
             <div key={task.key} className={task.status === "running" ? "bg-blue-50/45 dark:bg-blue-950/20" : ""}>
               <button
@@ -150,6 +163,11 @@ export default function SreTaskPlanList({ plan, variant = "chat", className = ""
                     <span className="shrink-0 text-[11px] font-medium text-gray-500 dark:text-gray-400">{task.phase}</span>
                     <span className="truncate text-[12px] font-semibold text-gray-800 dark:text-gray-100">{task.title}</span>
                   </div>
+                  {summary && !open ? (
+                    <p className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-gray-500 dark:text-gray-400" title={summary}>
+                      {summary}
+                    </p>
+                  ) : null}
                 </div>
                 <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ${meta.badge}`}>
                   {meta.label}

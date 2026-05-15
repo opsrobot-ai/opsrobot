@@ -51,9 +51,22 @@ function ensureNodesForEdges(nodes, edges) {
 export function normalizeTopologyMapModel(raw) {
   const base = raw && typeof raw === "object" && !Array.isArray(raw) ? { ...raw } : {};
   const st = base.static_topology && typeof base.static_topology === "object" ? { ...base.static_topology } : {};
-  const rawNodes = Array.isArray(st.nodes) ? st.nodes : Array.isArray(base.nodes) ? base.nodes : [];
+  const topoNested = base.topology && typeof base.topology === "object" ? base.topology : {};
+  const rawNodes = Array.isArray(st.nodes)
+    ? st.nodes
+    : Array.isArray(topoNested.nodes)
+      ? topoNested.nodes
+      : Array.isArray(base.nodes)
+        ? base.nodes
+        : [];
   let nodes = rawNodes.map(mapNode).filter(Boolean);
-  const rawEdges = Array.isArray(st.edges) ? st.edges : [];
+  const rawEdges = Array.isArray(st.edges)
+    ? st.edges
+    : Array.isArray(topoNested.edges)
+      ? topoNested.edges
+      : Array.isArray(base.edges)
+        ? base.edges
+        : [];
   let edges = rawEdges.map(mapEdge).filter(Boolean);
   nodes = ensureNodesForEdges(nodes, edges);
   const model = {

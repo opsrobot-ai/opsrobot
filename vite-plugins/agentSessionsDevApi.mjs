@@ -15,6 +15,8 @@ import {
   isSreVizJsonPath,
   handleSreReportMdMiddleware,
   isSreReportMdPath,
+  handleSreOpenclawFileMiddleware,
+  isSreOpenclawFilePath,
 } from "../backend/sre-agent/sre-viz-file-handler.mjs";
 import { attachSreAgentWebSocket } from "../backend/sre-agent/sre-agent-ws.mjs";
 import { queryAuditDashboardMetrics } from "../backend/security-audit/audit-dashboard-query.mjs";
@@ -125,6 +127,14 @@ export function agentSessionsDevApi() {
           void handleSreVizFileMiddleware(req, res).catch((e) => {
             if (!res.headersSent && !res.writableEnded) {
               sendJson(res, 500, { error: String(e?.message || e) });
+            }
+          });
+          return;
+        }
+        if (isSreOpenclawFilePath(path) && req.method === "GET") {
+          void handleSreOpenclawFileMiddleware(req, res).catch((e) => {
+            if (!res.headersSent && !res.writableEnded) {
+              sendJson(res, 500, { ok: false, error: String(e?.message || e) });
             }
           });
           return;

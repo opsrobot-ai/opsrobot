@@ -18,6 +18,32 @@ export function isSreReportMdPath(pathname) {
   return pathname === "/api/sre-agent/report-md";
 }
 
+export function isSreOpenclawFilePath(pathname) {
+  return pathname === "/api/sre-agent/openclaw-file";
+}
+
+/** 嵌套解析：允许读小的文本/json 产物（须在 .openclaw 或 OPENCLAW_VIZ_ALLOWED_ROOT 下） */
+const MAX_ARTIFACT_BYTES = 12 * 1024 * 1024;
+const ARTIFACT_EXT_RE = /\.(json|md|txt|ya?ml|log|csv|xml)$/i;
+
+function isAllowedArtifactFile(realPath) {
+  if (!ARTIFACT_EXT_RE.test(realPath)) return false;
+  try {
+    const st = fs.statSync(realPath);
+    if (!st.isFile() || st.size > MAX_ARTIFACT_BYTES) return false;
+  } catch {
+    return false;
+  }
+  return true;
+}
+
+function resolveAllowedOpenclawArtifactFile(inputPath) {
+  const expanded = expandUserPath(inputPath);
+  if (!expanded) return null;
+  const resolved = path.resolve(expanded);
+  return resolveUnderOpenclawRoots(resolved, isAllowedArtifactFile);
+}
+
 function expandUserPath(p) {
   const s = String(p ?? "").trim();
   if (!s || s.includes("\0")) return "";
@@ -140,6 +166,70 @@ export async function handleSreReportMdRead(req, res, rawUrl) {
     const msg = e instanceof Error ? e.message : String(e);
     sendJson(res, 500, { error: msg });
   }
+}
+
+/**
+ * GET /api/sre-agent/openclaw-file?path=...
+ * 返回 { ok, kind: 'json'|'text', data?, text? } 或 { ok:false, error }
+ */
+export async function handleSreOpenclawFileRead(req, res, rawUrl) {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+
+  if (req.method === "OPTIONS") {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+
+  if (req.method !== "GET") {
+    sendJson(res, 405, { ok: false, error: "Method not allowed. Use GET." });
+    return;
+  }
+
+  let filePath = "";
+  try {
+    const u = new URL(rawUrl || "", "http://127.0.0.1");
+    filePath = u.searchParams.get("path") || u.searchParams.get("p") || "";
+  } catch {
+    sendJson(res, 400, { ok: false, error: "Invalid URL" });
+    return;
+  }
+
+  if (!filePath.trim()) {
+    sendJson(res, 400, { ok: false, error: "Missing query parameter: path" });
+    return;
+  }
+
+  const safe = resolveAllowedOpenclawArtifactFile(filePath);
+  if (!safe) {
+    sendJson(res, 403, { ok: false, error: "Path not allowed or file not found" });
+    return;
+  }
+
+  try {
+    const text = await fsp.readFile(safe, "utf8");
+    const low = safe.toLowerCase();
+    if (low.endsWith(".json")) {
+      try {
+        const data = JSON.parse(text);
+        sendJson(res, 200, { ok: true, kind: "json", path: safe, data });
+      } catch {
+        sendJson(res, 200, { ok: true, kind: "text", path: safe, text });
+      }
+    } else {
+      sendJson(res, 200, { ok: true, kind: "text", path: safe, text });
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    sendJson(res, 500, { ok: false, error: msg });
+  }
+}
+
+export function handleSreOpenclawFileMiddleware(req, res) {
+  const rawUrl = req.url || "";
+  return handleSreOpenclawFileRead(req, res, rawUrl);
 }
 
 export async function handleSreVizFileRead(req, res, rawUrl) {

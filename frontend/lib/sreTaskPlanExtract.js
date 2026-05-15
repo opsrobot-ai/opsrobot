@@ -6,10 +6,13 @@ import {
 
 export const SRE_TASK_PLAN_ID_RE = /SRE-(\d{13}-[A-Za-z0-9]{6})/;
 
+/** 任务规划块：标题行含「【任务规划】」，同级或后续行 `incident_id: SRE-{13d}-{6c}`；保留旧版单行「【任务规划】— SRE-…」。 */
 export const SRE_TASK_PLAN_HEADING_RE =
-  /^(?:#{1,6}\s*)?【任务规划】\s*[—–-]\s*(SRE-\d{13}-[A-Za-z0-9]{6})\b.*$/gim;
+  /(?:^(?:#{1,6}\s*)?【任务规划】[^\n]*(?:\r?\n[^\r\n]*){0,20}?\r?\n\s*\*{0,2}incident_id\*{0,2}\s*[:：]\s*(?<fullId>SRE-\d{13}-[A-Za-z0-9]{6})\b|^(?:#{1,6}\s*)?【任务规划】\s*[—–-]\s*(?<fullId>SRE-\d{13}-[A-Za-z0-9]{6})\b[^\n]*)/gim;
 
-const SRE_ANY_TITLE_RE = /^(?:#{1,6}\s*)?【([^】]+)】\s*[—–-]\s*(SRE-\d{13}-[A-Za-z0-9]{6})\b.*$/gim;
+/** 阶段完成块：「【阶段名】」+ 后续 `incident_id:`；路径判定仅认 *_content.json（见 textCompletesTask）。 */
+const SRE_STAGE_INCIDENT_HEADING_RE =
+  /^(?:#{1,6}\s*)?\*{0,2}【(?<title>[^】]+)】\*{0,2}[^\n]*(?:\r?\n[^\r\n]*){0,40}?\r?\n\s*\*{0,2}incident_id\*{0,2}\s*[:：]\s*(?<fullId>SRE-\d{13}-[A-Za-z0-9]{6})\b/gim;
 
 const FIXED_SRE_TASKS = [
   { phase: "Stage 1", title: "环境感知", agentId: "sre-perception", details: "调用智能体：sre-perception" },
@@ -41,11 +44,42 @@ function taskKey(planId, index) {
   return `sre-task-${planId}-${index + 1}`;
 }
 
-function buildFixedTasks(planId) {
+/** 匹配 `- [ ] **环境感知** → …` / `• 环境感知 → …` 等，返回箭头后的描述文本。 */
+function matchTaskLineDescription(line, title) {
+  const esc = String(title).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(
+    `^(?:[-*•]\\s*(?:\\[[ xX]\\]\\s*)?)?(?:\\*\\*${esc}\\*\\*|${esc})\\s*(?:→|->)\\s*(.+)$`,
+    "u",
+  );
+  const m = String(line ?? "").trim().match(re);
+  if (!m) return null;
+  const desc = stripMdInline(m[1].trim());
+  return desc || null;
+}
+
+/** 从任务规划正文按阶段标题提取「→」后的说明，供任务列表展示。 */
+function extractSreTaskDescriptionsByTitle(planBody) {
+  const map = new Map();
+  const lines = String(planBody ?? "").split(/\r?\n/);
+  for (const task of FIXED_SRE_TASKS) {
+    for (const rawLine of lines) {
+      const desc = matchTaskLineDescription(rawLine, task.title);
+      if (desc) {
+        map.set(task.title, desc);
+        break;
+      }
+    }
+  }
+  return map;
+}
+
+function buildFixedTasks(planId, planBody = "") {
+  const byTitle = extractSreTaskDescriptionsByTitle(planBody);
   return FIXED_SRE_TASKS.map((task, index) => ({
     ...task,
     key: taskKey(planId, index),
     index,
+    details: byTitle.get(task.title) ?? task.details,
   }));
 }
 
@@ -329,10 +363,36 @@ export function extractSreSpawnEvents(messagesOrToolCalls, maybeToolCalls) {
   return extractSreSpawnEventsFromToolCalls(messagesOrToolCalls);
 }
 
-function findNextSreHeading(src, from) {
-  SRE_ANY_TITLE_RE.lastIndex = from;
-  const m = SRE_ANY_TITLE_RE.exec(src);
-  return m ? m.index : src.length;
+function messageAssistantText(msg) {
+  return textFromContentBlocks(msg?.content ?? "");
+}
+
+function findNextSreTaskPlanBoundary(src, from) {
+  const savedPlan = SRE_TASK_PLAN_HEADING_RE.lastIndex;
+  const savedStage = SRE_STAGE_INCIDENT_HEADING_RE.lastIndex;
+  try {
+    const slice = src.slice(from);
+    let min = src.length;
+
+    SRE_TASK_PLAN_HEADING_RE.lastIndex = 0;
+    const mPlan = SRE_TASK_PLAN_HEADING_RE.exec(slice);
+    if (mPlan) min = from + mPlan.index;
+
+    SRE_STAGE_INCIDENT_HEADING_RE.lastIndex = 0;
+    let m;
+    while ((m = SRE_STAGE_INCIDENT_HEADING_RE.exec(slice)) !== null) {
+      const tit = stripMdInline(m.groups?.title ?? "");
+      if (tit !== "任务规划") {
+        const idx = from + m.index;
+        if (idx < min) min = idx;
+      }
+    }
+
+    return min;
+  } finally {
+    SRE_TASK_PLAN_HEADING_RE.lastIndex = savedPlan;
+    SRE_STAGE_INCIDENT_HEADING_RE.lastIndex = savedStage;
+  }
 }
 
 export function extractSreTaskPlans(text) {
@@ -341,22 +401,22 @@ export function extractSreTaskPlans(text) {
   SRE_TASK_PLAN_HEADING_RE.lastIndex = 0;
   let m;
   while ((m = SRE_TASK_PLAN_HEADING_RE.exec(src)) !== null) {
-    const fullId = m[1];
+    const fullId = m.groups?.fullId;
     const id = extractPlanId(fullId);
     if (!id) continue;
 
-    const lineEnd = src.indexOf("\n", m.index);
-    const bodyStart = lineEnd >= 0 ? lineEnd + 1 : m.index + m[0].length;
-    const bodyEnd = findNextSreHeading(src, bodyStart);
+    const bodyStart = m.index + m[0].length;
+    const bodyEnd = findNextSreTaskPlanBoundary(src, bodyStart);
+    const body = src.slice(bodyStart, bodyEnd).trim();
     plans.push({
       id,
       fullId,
       title: "任务规划",
       heading: m[0].replace(/^#+\s*/, "").trim(),
-      body: src.slice(bodyStart, bodyEnd).trim(),
+      body,
       start: m.index,
       end: bodyEnd,
-      tasks: buildFixedTasks(id),
+      tasks: buildFixedTasks(id, body),
     });
   }
   return plans;
@@ -381,35 +441,39 @@ export function splitAssistantMessageOnSreTaskPlans(text) {
 function extractSreHeadings(text) {
   const src = String(text ?? "");
   const found = [];
-  SRE_ANY_TITLE_RE.lastIndex = 0;
+  SRE_STAGE_INCIDENT_HEADING_RE.lastIndex = 0;
   let m;
-  while ((m = SRE_ANY_TITLE_RE.exec(src)) !== null) {
-    const id = extractPlanId(m[2]);
+  while ((m = SRE_STAGE_INCIDENT_HEADING_RE.exec(src)) !== null) {
+    const fullId = m.groups?.fullId;
+    const id = extractPlanId(fullId);
     if (!id) continue;
     found.push({
-      title: stripMdInline(m[1]),
+      title: stripMdInline(m.groups?.title),
       id,
-      fullId: m[2],
+      fullId,
       index: m.index,
     });
   }
   return found;
 }
 
-function messageCompletesTask(message, plan, task) {
-  const content = String(message?.content ?? "");
-  const headings = extractSreHeadings(content).filter(
+function textCompletesTask(slice, plan, task) {
+  const headings = extractSreHeadings(slice).filter(
     (h) => h.id === plan.id && h.title !== "任务规划" && titleMatches(h.title, task.title),
   );
   if (!headings.length) return false;
 
-  const reportPaths = extractSreReportPaths(content).filter((p) => getSreSessionId(p) === plan.fullId);
-  if (!reportPaths.length) return false;
+  const paths = extractSreReportPaths(slice).filter((p) => getSreSessionId(p) === plan.fullId);
+  if (!paths.length) return false;
 
-  return reportPaths.some((p) => {
+  return paths.some((p) => {
     const cfg = getSreReportStageConfig(p);
-    return cfg ? titleMatches(cfg.label, task.title) : false;
+    return cfg?.pathKind === "content" && titleMatches(cfg.label, task.title);
   });
+}
+
+function messageCompletesTask(message, plan, task) {
+  return textCompletesTask(messageAssistantText(message), plan, task);
 }
 
 export function buildSreTaskPlanState(messages, toolCalls = {}) {
@@ -417,7 +481,7 @@ export function buildSreTaskPlanState(messages, toolCalls = {}) {
   for (let msgIndex = 0; msgIndex < (messages || []).length; msgIndex++) {
     const msg = messages[msgIndex];
     if (msg?.role !== "assistant") continue;
-    const plans = extractSreTaskPlans(msg.content || "");
+    const plans = extractSreTaskPlans(messageAssistantText(msg));
     for (const plan of plans) {
       planDefs.push({
         ...plan,
@@ -432,6 +496,13 @@ export function buildSreTaskPlanState(messages, toolCalls = {}) {
 
   const plans = planDefs.map((plan) => {
     const completed = new Set();
+    const planMsg = messages?.[plan.messageIndex];
+    if (planMsg?.role === "assistant" && plan.end != null) {
+      const tail = messageAssistantText(planMsg).slice(plan.end);
+      for (const task of plan.tasks) {
+        if (textCompletesTask(tail, plan, task)) completed.add(task.key);
+      }
+    }
     for (let i = plan.messageIndex + 1; i < (messages || []).length; i++) {
       const msg = messages[i];
       if (msg?.role !== "assistant") continue;

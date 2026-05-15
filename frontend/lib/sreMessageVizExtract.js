@@ -277,11 +277,12 @@ export function splitAssistantMessageOnVizFences(text) {
   return { parts };
 }
 
-/** 行内反引号路径或裸露路径，须以 final_report.md 结尾（大小写不敏感） */
-const FINAL_REPORT_PATH_RE = /`([~./][^`\s]*final_report\.md)`|([~./][^\s`\]"'<>]*final_report\.md)/gi;
+/** 行内反引号路径或裸露路径：终稿 Markdown 或 stage5 最终 content JSON（大小写不敏感） */
+const FINAL_REPORT_PATH_RE =
+  /`([~./][^`\s]*(?:_stage5_final_content\.json|final_report\.md))`|([~./][^\s`\]"'<>]*(?:_stage5_final_content\.json|final_report\.md))/gi;
 
 /**
- * 将助手消息按「归档报告 *.md 路径」拆成 Markdown 与可点击预览段，用于在聊天里用按钮替代长路径。
+ * 将助手消息按「归档终稿路径」（*_stage5_final_content.json 或 *_final_report.md）拆成 Markdown 与可点击预览段，
  *
  * @param {string} text
  * @returns {{ parts: Array<{ type: "markdown"; text: string } | { type: "final_report"; path: string }> } | null}
@@ -295,7 +296,7 @@ export function splitAssistantMessageOnFinalReportPaths(text) {
     const path = String(m[1] || m[2] || "").trim();
     if (!path) continue;
     const low = path.toLowerCase();
-    if (!low.endsWith("final_report.md")) continue;
+    if (!low.endsWith("final_report.md") && !low.endsWith("_stage5_final_content.json")) continue;
     rawMatches.push({ path, start: m.index, end: m.index + m[0].length });
   }
   if (rawMatches.length === 0) return null;

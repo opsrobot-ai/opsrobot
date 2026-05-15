@@ -27,6 +27,8 @@ import {
   isSreVizJsonPath,
   handleSreReportMdRead,
   isSreReportMdPath,
+  handleSreOpenclawFileRead,
+  isSreOpenclawFilePath,
 } from "./sre-agent/sre-viz-file-handler.mjs";
 import { attachSreAgentWebSocket } from "./sre-agent/sre-agent-ws.mjs";
 import {
@@ -95,6 +97,10 @@ const server = http.createServer(async (req, res) => {
 
   if (isSreVizJsonPath(path) && req.method === "GET") {
     return handleSreVizFileRead(req, res, url);
+  }
+
+  if (isSreOpenclawFilePath(path) && req.method === "GET") {
+    return handleSreOpenclawFileRead(req, res, url);
   }
 
   // WebSocket 仅 upgrade，不走 HTTP POST
